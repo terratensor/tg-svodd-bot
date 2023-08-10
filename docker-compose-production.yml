@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  tg-svodd-bot:
+    image: ${REGISTRY}/tg-svodd-bot:${IMAGE_TAG}
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      - registry
+    networks:
+      - rmq-net
+      - tg-bot-net
+    environment:
+      RABBIT_SERVER_URL: amqp://rmq
+      RABBIT_EXCHANGE_NAME: ex1
+      TG_CHAT_ID: "@svoddru"
+      Q1: rabbit://q1
+      TG_BOT_TOKEN_FILE: /run/secrets/tg_bot_token
+    secrets:
+      - tg_bot_token
+    command: './tg-svodd-bot'
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+
+secrets:
+  tg_bot_token:
+    file: ./docker/development/secrets/tg_bot_token
+
+networks:
+  rmq-net:
+    name: rmq-net
+  tg-bot-net:
