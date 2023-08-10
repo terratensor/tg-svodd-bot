@@ -87,11 +87,14 @@ func sendMessage(url string, message *message.Message) error {
 	if err != nil {
 		return err
 	}
+	defer response.Body.Close()
+
 	defer func(body io.ReadCloser) {
 		if err := body.Close(); err != nil {
 			log.Println("failed to close response body")
 		}
 	}(response.Body)
+
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to send successful request. Status was %q", response.Status)
 	}

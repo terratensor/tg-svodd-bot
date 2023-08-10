@@ -18,9 +18,15 @@ func Run(ctx context.Context, chout chan msghandler.Request, wg *sync.WaitGroup)
 	// variable RABBIT_SERVER_URL and open the queue "myqueue".
 	subs, err := pubsub.OpenSubscription(ctx, os.Getenv("Q1"))
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
-	defer subs.Shutdown(ctx)
+
+	defer func(subs *pubsub.Subscription, ctx context.Context) {
+		err := subs.Shutdown(ctx)
+		if err != nil {
+			log.Panic(err)
+		}
+	}(subs, ctx)
 
 	for {
 		msg, err := subs.Receive(ctx)

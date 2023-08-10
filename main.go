@@ -19,7 +19,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer topic.Shutdown(ctx)
+	defer func(topic *pubsub.Topic, ctx context.Context) {
+		err = topic.Shutdown(ctx)
+		if err != nil {
+			log.Panic(err)
+		}
+	}(topic, ctx)
 
 	err = topic.Send(ctx, &pubsub.Message{
 		Body: []byte("Hello, <blockquote>World!</blockquote>"),
