@@ -30,7 +30,7 @@ services:
 
 secrets:
   tg_bot_token:
-    file: ./docker/development/secrets/tg_bot_token
+    file: ${APP_TG_BOT_TOKEN_FILE}
 
 networks:
   rmq-net:
