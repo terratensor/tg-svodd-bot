@@ -1,0 +1,37 @@
+run:
+  concurrency: 4
+  timeout: 1m
+  issues-exit-code: 1
+  tests: false
+  skip-dirs-use-default: true
+
+linters:
+  enable:
+    - gofmt
+    - goimports
+    - govet
+    - gochecknoglobals # проверяет что не используются глобальные переменные.
+    - goconst
+    - staticcheck
+    - funlen
+    - bodyclose
+    - errcheck
+    - exportloopref # находит захват переменной range цикла по ссылке
+    - unconvert # проверяет что вы не делайте лишние конверсии
+    - unused # проверяет неиспользуемые поля структур
+    - unparam # сообщает когда аргументы функции не используются в самом теле функции.
+    - ineffassign # сообщает когда изменение переменой не используются дальше в коде
+    - errcheck # находит места где забыли проверку ошибок
+    - gocritic
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/audetv/url-shortener
+  govet:
+    check-shadowing: true
+    goconst:
+      min-len: 2
+      min-occurrences: 2
+    funlen:
+      lines: 100
+      statements: 50

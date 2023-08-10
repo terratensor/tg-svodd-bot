@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
-	_ "gocloud.dev/pubsub/rabbitpubsub"
 	"os"
 	"os/signal"
 	"sync"
 	"tg-svodd-bot/consumer/internal/infra/msghandler"
 	"tg-svodd-bot/consumer/internal/infra/msgreceiver"
+
+	_ "gocloud.dev/pubsub/rabbitpubsub"
 )
 
 func main() {

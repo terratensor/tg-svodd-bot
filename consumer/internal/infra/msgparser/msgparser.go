@@ -2,8 +2,9 @@ package msgparser
 
 import (
 	"fmt"
-	"golang.org/x/net/html"
 	"strings"
+
+	"golang.org/x/net/html"
 )
 
 // Parse обрабатывает текст сообщения для отправки в телеграм.
@@ -14,7 +15,7 @@ func Parse(msg string) (string, error) {
 	var builder strings.Builder
 	var f func(*html.Node)
 
-	//text := builder.String()
+	// text := builder.String()
 
 	f = func(n *html.Node) {
 		if n.Type == html.TextNode {

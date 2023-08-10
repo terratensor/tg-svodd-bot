@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	"gocloud.dev/pubsub"
@@ -31,6 +32,6 @@ func main() {
 		},
 	})
 	if err != nil {
-		log.Fatal(err)
+		log.Println(fmt.Errorf("%v", err))
 	}
 }

@@ -1,3 +1,9 @@
+check:
+	golangci-lint run -v
+
+check-fix:
+	golangci-lint run --fix
+
 docker-build:
 	DOCKER_BUILDKIT=1 docker --log-level=debug build --pull --build-arg BUILDKIT_INLINE_CACHE=1 \
 		--target builder \

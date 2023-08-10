@@ -2,11 +2,12 @@ package msgreceiver
 
 import (
 	"context"
-	"gocloud.dev/pubsub"
 	"log"
 	"os"
 	"sync"
 	"tg-svodd-bot/consumer/internal/infra/msghandler"
+
+	"gocloud.dev/pubsub"
 )
 
 func Run(ctx context.Context, chout chan msghandler.Request, wg *sync.WaitGroup) {
