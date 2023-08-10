@@ -22,6 +22,8 @@ services:
       - tg_bot_token
     command: './tg-svodd-bot'
     deploy:
+      placement:
+        constraints: [ node.role == manager ]
       restart_policy:
         condition: on-failure
         delay: 5s
