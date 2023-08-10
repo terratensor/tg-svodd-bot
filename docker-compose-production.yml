@@ -37,4 +37,5 @@ secrets:
 networks:
   rmq-net:
     name: rmq-net
+    external: true
   tg-bot-net:
