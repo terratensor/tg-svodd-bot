@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"tg-svodd-bot/consumer/internal/domain/message"
 	"time"
 )
@@ -16,7 +17,7 @@ import (
 func Send(ctx context.Context, text string) {
 
 	contents, _ := os.ReadFile(os.Getenv("TG_BOT_TOKEN_FILE"))
-	token := fmt.Sprintf("%v", string(contents))
+	token := fmt.Sprintf("%v", strings.Trim(string(contents), "\r\n"))
 
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage",
 		token)
