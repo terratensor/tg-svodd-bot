@@ -23,7 +23,7 @@ func Handler(ctx context.Context, ch chan Request, wg *sync.WaitGroup) {
 			return
 		case r := <-ch:
 
-			log.Printf("id=%s body=%s metadata=%+v", r.ID, r.Message, r.Headers)
+			log.Printf("id=%s metadata=%+v", r.ID, r.Headers)
 
 			// Обрабатываем сообщение, заменяем, удаляем не поддерживаемые теги,
 			// форматируем сообщение для отправки в телеграм
