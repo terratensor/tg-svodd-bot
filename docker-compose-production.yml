@@ -18,8 +18,10 @@ services:
       TG_CHAT_ID: "@svoddru"
       Q1: rabbit://q1
       TG_BOT_TOKEN_FILE: /run/secrets/tg_bot_token
+      SENTRY_DSN_FILE: /run/secrets/sentry_dsn
     secrets:
       - tg_bot_token
+      - sentry_dsn
     command: './tg-svodd-bot'
     deploy:
       placement:
@@ -33,6 +35,8 @@ services:
 secrets:
   tg_bot_token:
     file: ${APP_TG_BOT_TOKEN_FILE}
+  sentry_dsn:
+    file: ${APP_SENTRY_DSN_FILE}
 
 networks:
   rmq-net:

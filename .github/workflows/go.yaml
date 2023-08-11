@@ -69,4 +69,5 @@ jobs:
         HOST: ${{ secrets.PRODUCTION_HOST }}
         PORT: ${{ secrets.PRODUCTION_PORT }}
         APP_TG_BOT_TOKEN_FILE: ${{ secrets.APP_TG_BOT_TOKEN_FILE }}
+        APP_SENTRY_DSN_FILE: ${{ secrets.APP_SENTRY_DSN_FILE }}
       if: ${{ github.ref == 'refs/heads/main' }}

@@ -1,8 +1,19 @@
+down:
+	docker compose down --remove-orphans
+up:
+	docker compose up --build -d
+
 check:
 	golangci-lint run -v
 
 check-fix:
 	golangci-lint run --fix
+
+dev-rebuild: down dev-docker-build up
+
+
+dev-docker-build:
+	REGISTRY=localhost IMAGE_TAG=main-1 make docker-build
 
 docker-build:
 	DOCKER_BUILDKIT=1 docker --log-level=debug build --pull --build-arg BUILDKIT_INLINE_CACHE=1 \

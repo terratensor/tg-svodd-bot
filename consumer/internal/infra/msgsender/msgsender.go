@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"tg-svodd-bot/consumer/internal/domain/message"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 )
 
 func Send(ctx context.Context, text string) {
@@ -29,7 +30,7 @@ func Send(ctx context.Context, text string) {
 		ParseMode: "HTML",
 	}
 
-	if len(msg.Text) > 4096 {
+	if len(msg.Text) >= 4096 {
 		splitMsg := splitMessage(msg, 4096)
 		for _, m := range splitMsg {
 			err := sendMessage(url, &message.Message{
@@ -38,7 +39,9 @@ func Send(ctx context.Context, text string) {
 				ParseMode: "HTML",
 			})
 			if err != nil {
-				log.Printf("error: %v Text: %s", err, text)
+				cm := fmt.Sprintf("error: %v Text: %s", err, text)
+				log.Println(cm)
+				sentry.CaptureMessage(cm)
 			}
 			// Ожидаем 3 секунды после отправки, необходимо для соблюдения лимитов отправки сообщений ботом, 20 сообщений в минуту
 			time.Sleep(time.Second * 3)
@@ -46,7 +49,9 @@ func Send(ctx context.Context, text string) {
 	} else {
 		err := sendMessage(url, msg)
 		if err != nil {
-			log.Printf("error: %v Text: %s", err, text)
+			cm := fmt.Sprintf("error: %v Text: %s", err, text)
+			log.Println(cm)
+			sentry.CaptureMessage(cm)
 		}
 		// Ожидаем 3 секунды после отправки, необходимо для соблюдения лимитов отправки сообщений ботом, 20 сообщений в минуту
 		time.Sleep(time.Second * 3)
@@ -90,14 +95,17 @@ func sendMessage(url string, message *message.Message) error {
 	}
 	defer response.Body.Close()
 
-	defer func(body io.ReadCloser) {
-		if err := body.Close(); err != nil {
-			log.Println("failed to close response body")
-		}
-	}(response.Body)
+	var j interface{}
+
+	err = json.NewDecoder(response.Body).Decode(&j)
+	if err != nil {
+		log.Printf("filed to decode response body %v", err)
+	} else {
+		log.Printf("response body: %v", j)
+	}
 
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to send successful request. Status was %q", response.Status)
+		return fmt.Errorf("failed to send successful request. Status was %q. Response body: %v", response.Status, j)
 	}
 	return nil
 }
