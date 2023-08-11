@@ -19,7 +19,7 @@ func Parse(msg string) (string, error) {
 
 	f = func(n *html.Node) {
 		if n.Type == html.TextNode {
-			builder.WriteString(n.Data)
+			builder.WriteString(html.EscapeString(n.Data))
 		}
 		if n.Type == html.TextNode && n.Data == "br" {
 			builder.WriteString(fmt.Sprintf("\n%s", ""))
@@ -56,7 +56,7 @@ func processBlockquote(node *html.Node) string {
 		}
 	}
 
-	return fmt.Sprintf("<i>%v</i>", strings.TrimSpace(text))
+	return fmt.Sprintf("<i>%v</i>", strings.TrimSpace(html.EscapeString(text)))
 }
 
 // Перебирает аттрибуты токена в цикле и возвращает bool
