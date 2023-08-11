@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/getsentry/sentry-go"
 	"log"
 	"os"
 	"os/signal"
@@ -12,6 +11,8 @@ import (
 	"tg-svodd-bot/consumer/internal/infra/msghandler"
 	"tg-svodd-bot/consumer/internal/infra/msgreceiver"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 
 	_ "gocloud.dev/pubsub/rabbitpubsub"
 )

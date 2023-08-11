@@ -3,11 +3,12 @@ package msghandler
 import (
 	"context"
 	"fmt"
-	"github.com/getsentry/sentry-go"
 	"log"
 	"sync"
 	"tg-svodd-bot/consumer/internal/infra/msgparser"
 	"tg-svodd-bot/consumer/internal/infra/msgsender"
+
+	"github.com/getsentry/sentry-go"
 )
 
 type Request struct {

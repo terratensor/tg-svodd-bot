@@ -3,11 +3,12 @@ package msgreceiver
 import (
 	"context"
 	"fmt"
-	"github.com/getsentry/sentry-go"
 	"log"
 	"os"
 	"sync"
 	"tg-svodd-bot/consumer/internal/infra/msghandler"
+
+	"github.com/getsentry/sentry-go"
 
 	"gocloud.dev/pubsub"
 )

@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/getsentry/sentry-go"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 	"tg-svodd-bot/consumer/internal/domain/message"
 	"time"
+
+	"github.com/getsentry/sentry-go"
 )
 
 func Send(ctx context.Context, text string) {
@@ -39,7 +40,7 @@ func Send(ctx context.Context, text string) {
 			})
 			if err != nil {
 				cm := fmt.Sprintf("error: %v Text: %s", err, text)
-				log.Printf(cm)
+				log.Println(cm)
 				sentry.CaptureMessage(cm)
 			}
 			// Ожидаем 3 секунды после отправки, необходимо для соблюдения лимитов отправки сообщений ботом, 20 сообщений в минуту
@@ -49,7 +50,7 @@ func Send(ctx context.Context, text string) {
 		err := sendMessage(url, msg)
 		if err != nil {
 			cm := fmt.Sprintf("error: %v Text: %s", err, text)
-			log.Printf(cm)
+			log.Println(cm)
 			sentry.CaptureMessage(cm)
 		}
 		// Ожидаем 3 секунды после отправки, необходимо для соблюдения лимитов отправки сообщений ботом, 20 сообщений в минуту
