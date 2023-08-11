@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/getsentry/sentry-go"
 	"log"
 	"net/http"
 	"os"
@@ -37,7 +38,9 @@ func Send(ctx context.Context, text string) {
 				ParseMode: "HTML",
 			})
 			if err != nil {
-				log.Printf("error: %v Text: %s", err, text)
+				cm := fmt.Sprintf("error: %v Text: %s", err, text)
+				log.Printf(cm)
+				sentry.CaptureMessage(cm)
 			}
 			// Ожидаем 3 секунды после отправки, необходимо для соблюдения лимитов отправки сообщений ботом, 20 сообщений в минуту
 			time.Sleep(time.Second * 3)
@@ -45,7 +48,9 @@ func Send(ctx context.Context, text string) {
 	} else {
 		err := sendMessage(url, msg)
 		if err != nil {
-			log.Printf("error: %v Text: %s", err, text)
+			cm := fmt.Sprintf("error: %v Text: %s", err, text)
+			log.Printf(cm)
+			sentry.CaptureMessage(cm)
 		}
 		// Ожидаем 3 секунды после отправки, необходимо для соблюдения лимитов отправки сообщений ботом, 20 сообщений в минуту
 		time.Sleep(time.Second * 3)
@@ -99,7 +104,7 @@ func sendMessage(url string, message *message.Message) error {
 	}
 
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to send successful request. Status was %q", response.Status)
+		return fmt.Errorf("failed to send successful request. Status was %q. Response body: %v", response.Status, j)
 	}
 	return nil
 }

@@ -2,6 +2,8 @@ package msghandler
 
 import (
 	"context"
+	"fmt"
+	"github.com/getsentry/sentry-go"
 	"log"
 	"sync"
 	"tg-svodd-bot/consumer/internal/infra/msgparser"
@@ -29,6 +31,7 @@ func Handler(ctx context.Context, ch chan Request, wg *sync.WaitGroup) {
 			// форматируем сообщение для отправки в телеграм
 			text, err := msgparser.Parse(r.Message)
 			if err != nil {
+				sentry.CaptureMessage(fmt.Sprint(err))
 				log.Printf("error: %v Text: %s", err, r.Message)
 			}
 			// Отправляем подготовленное сообщение в телеграм

@@ -2,6 +2,8 @@ package msgreceiver
 
 import (
 	"context"
+	"fmt"
+	"github.com/getsentry/sentry-go"
 	"log"
 	"os"
 	"sync"
@@ -18,12 +20,14 @@ func Run(ctx context.Context, chout chan msghandler.Request, wg *sync.WaitGroup)
 	// variable RABBIT_SERVER_URL and open the queue "myqueue".
 	subs, err := pubsub.OpenSubscription(ctx, os.Getenv("Q1"))
 	if err != nil {
+		sentry.CaptureMessage(fmt.Sprint(err))
 		log.Panic(err)
 	}
 
 	defer func(subs *pubsub.Subscription, ctx context.Context) {
 		err := subs.Shutdown(ctx)
 		if err != nil {
+			sentry.CaptureMessage(fmt.Sprint(err))
 			log.Panic(err)
 		}
 	}(subs, ctx)
@@ -31,6 +35,7 @@ func Run(ctx context.Context, chout chan msghandler.Request, wg *sync.WaitGroup)
 	for {
 		msg, err := subs.Receive(ctx)
 		if err != nil {
+			sentry.CaptureMessage(fmt.Sprint(err))
 			log.Printf("Receiving message: %v", err)
 			break
 		}
