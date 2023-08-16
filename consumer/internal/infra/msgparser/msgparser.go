@@ -9,7 +9,7 @@ import (
 
 // Parse обрабатывает текст сообщения для отправки в телеграм.
 // Устанавливает необходимые html теги
-func Parse(msg string) (string, error) {
+func Parse(msg string) ([]string, error) {
 	n, _ := html.Parse(strings.NewReader(msg))
 
 	var builder strings.Builder
@@ -35,7 +35,37 @@ func Parse(msg string) (string, error) {
 	}
 	f(n)
 
-	return builder.String(), nil
+	messages := splitMessage(builder.String(), 4096)
+
+	return messages, nil
+}
+
+// splitMessage разбивает текст комментария на блоки размером не более чем 4096 символов
+// ToDo сделать проверку на начала цитаты — теги <li></li>
+// ToDo не добавлять цитаты в сообщение если оно уже превышает определенную длин, например 3500,???
+// ToDo проверять, что тег цитаты закрыт в итоговом сообщении, можно искать открывающий тег <li>,
+// ToDo потом подсчитывать блоки и если следующий блок в сумме с предыдущими превышает 4096, проверять закрыт ли тег <li>
+// ToDo если нет, то закрывать, а в следующем чанке, который пойдет в новое сообщение открывать этот тег <li> снова
+func splitMessage(msg string, chunkSize int) []string {
+	var msgs []string
+	if len(msg) < chunkSize {
+		msgs = append(msgs, msg)
+		return msgs
+	}
+
+	var builder strings.Builder
+	chunks := strings.SplitAfter(msg, "\n")
+
+	for _, chunk := range chunks {
+		if len(builder.String())+len(chunk) < chunkSize {
+			builder.WriteString(chunk)
+		} else {
+			msgs = append(msgs, builder.String())
+			builder.Reset()
+			builder.WriteString(chunk)
+		}
+	}
+	return msgs
 }
 
 func processBlockquote(node *html.Node) string {

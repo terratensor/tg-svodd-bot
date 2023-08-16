@@ -28,15 +28,16 @@ func Handler(ctx context.Context, ch chan Request, wg *sync.WaitGroup) {
 
 			log.Printf("id=%s metadata=%+v", r.ID, r.Headers)
 
-			// Обрабатываем сообщение, заменяем, удаляем не поддерживаемые теги,
-			// форматируем сообщение для отправки в телеграм
-			text, err := msgparser.Parse(r.Message)
+			// Обрабатываем комментарий, заменяем, удаляем не поддерживаемые теги,
+			// форматируем и разбиваю на блоки не превышающие 4096 символов,
+			// для отправки в телеграм
+			messages, err := msgparser.Parse(r.Message)
 			if err != nil {
 				sentry.CaptureMessage(fmt.Sprint(err))
 				log.Printf("error: %v Text: %s", err, r.Message)
 			}
-			// Отправляем подготовленное сообщение в телеграм
-			msgsender.Send(ctx, text)
+			// Отправляем подготовленные сообщения в телеграм
+			msgsender.Send(ctx, messages)
 		}
 	}
 }
