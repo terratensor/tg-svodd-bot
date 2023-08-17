@@ -3,6 +3,7 @@ package msgparser
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/net/html"
 )
@@ -41,14 +42,10 @@ func Parse(msg string) ([]string, error) {
 }
 
 // splitMessage разбивает текст комментария на блоки размером не более чем 4096 символов
-// ToDo сделать проверку на начала цитаты — теги <li></li>
-// ToDo не добавлять цитаты в сообщение если оно уже превышает определенную длин, например 3500,???
-// ToDo проверять, что тег цитаты закрыт в итоговом сообщении, можно искать открывающий тег <li>,
-// ToDo потом подсчитывать блоки и если следующий блок в сумме с предыдущими превышает 4096, проверять закрыт ли тег <li>
-// ToDo если нет, то закрывать, а в следующем чанке, который пойдет в новое сообщение открывать этот тег <li> снова
+// разделитель для блоков \n
 func splitMessage(msg string, chunkSize int) []string {
 	var msgs []string
-	if len(msg) < chunkSize {
+	if utf8.RuneCountInString(msg) < chunkSize {
 		msgs = append(msgs, msg)
 		return msgs
 	}
@@ -57,7 +54,7 @@ func splitMessage(msg string, chunkSize int) []string {
 	chunks := strings.SplitAfter(msg, "\n")
 
 	for _, chunk := range chunks {
-		if len(builder.String())+len(chunk) < chunkSize {
+		if utf8.RuneCountInString(builder.String())+utf8.RuneCountInString(chunk) < chunkSize {
 			builder.WriteString(chunk)
 		} else {
 			msgs = append(msgs, builder.String())
@@ -65,6 +62,12 @@ func splitMessage(msg string, chunkSize int) []string {
 			builder.WriteString(chunk)
 		}
 	}
+	// При завершении цикла проверяем остался ли в билдере текст,
+	// если да, то добавляем текс в срез сообщений
+	if builder.Len() > 0 {
+		msgs = append(msgs, builder.String())
+	}
+
 	return msgs
 }
 
@@ -86,7 +89,20 @@ func processBlockquote(node *html.Node) string {
 		}
 	}
 
-	return fmt.Sprintf("<i>%v</i>", strings.TrimSpace(html.EscapeString(text)))
+	// return fmt.Sprintf("<i>%v</i>", strings.TrimSpace(html.EscapeString(text)))
+
+	// Текст цитаты разбивается на блоки по разделителю \n и каждый блок оборачивается тегом <i></i>,
+	// таким образом, когда в последующем будет производиться проверка на превышение разрешенной длины сообщения 4096,
+	// и в случае превышения будет произведена разбивка текста сообщения по разделителю \n,
+	// то не должно быть блоков, которые окажутся без закрывающих тегов </i>
+	text = strings.TrimSpace(html.EscapeString(text))
+	var builder strings.Builder
+	chunks := strings.SplitAfter(text, "\n")
+	for _, chunk := range chunks {
+		builder.WriteString(fmt.Sprintf("<i>%v</i>", strings.TrimSpace(chunk)))
+	}
+
+	return builder.String()
 }
 
 // Перебирает аттрибуты токена в цикле и возвращает bool
