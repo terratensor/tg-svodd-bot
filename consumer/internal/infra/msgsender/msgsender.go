@@ -15,7 +15,7 @@ import (
 	"github.com/getsentry/sentry-go"
 )
 
-func Send(ctx context.Context, text string) {
+func Send(ctx context.Context, messages []string) {
 
 	contents, _ := os.ReadFile(os.Getenv("TG_BOT_TOKEN_FILE"))
 	token := fmt.Sprintf("%v", strings.Trim(string(contents), "\r\n"))
@@ -24,63 +24,23 @@ func Send(ctx context.Context, text string) {
 		token)
 	chatID := os.Getenv("TG_CHAT_ID")
 
-	msg := &message.Message{
-		ChatID:    chatID,
-		Text:      text,
-		ParseMode: "HTML",
-	}
+	for _, text := range messages {
 
-	if len(msg.Text) >= 4096 {
-		splitMsg := splitMessage(msg, 4096)
-		for _, m := range splitMsg {
-			err := sendMessage(url, &message.Message{
-				ChatID:    chatID,
-				Text:      m,
-				ParseMode: "HTML",
-			})
-			if err != nil {
-				cm := fmt.Sprintf("error: %v Text: %s", err, text)
-				log.Println(cm)
-				sentry.CaptureMessage(cm)
-			}
-			// Ожидаем 3 секунды после отправки, необходимо для соблюдения лимитов отправки сообщений ботом, 20 сообщений в минуту
-			time.Sleep(time.Second * 3)
+		msg := &message.Message{
+			ChatID:    chatID,
+			Text:      text,
+			ParseMode: "HTML",
 		}
-	} else {
+
 		err := sendMessage(url, msg)
 		if err != nil {
-			cm := fmt.Sprintf("error: %v Text: %s", err, text)
+			cm := fmt.Sprintf("error: %v Text: %s", err, msg.Text)
 			log.Println(cm)
 			sentry.CaptureMessage(cm)
 		}
 		// Ожидаем 3 секунды после отправки, необходимо для соблюдения лимитов отправки сообщений ботом, 20 сообщений в минуту
 		time.Sleep(time.Second * 3)
 	}
-
-}
-
-func splitMessage(msg *message.Message, chunkSize int) []string {
-	s := msg.Text
-
-	if len(s) == 0 {
-		return nil
-	}
-	if chunkSize >= len(s) {
-		return []string{s}
-	}
-	var chunks []string = make([]string, 0, (len(s)-1)/chunkSize+1)
-	currentLen := 0
-	currentStart := 0
-	for i := range s {
-		if currentLen == chunkSize {
-			chunks = append(chunks, s[currentStart:i])
-			currentLen = 0
-			currentStart = i
-		}
-		currentLen++
-	}
-	chunks = append(chunks, s[currentStart:])
-	return chunks
 }
 
 // sendMessage sends a message to given URL.

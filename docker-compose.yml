@@ -24,7 +24,7 @@ services:
     environment:
       RABBIT_SERVER_URL: amqp://rmq
       RABBIT_EXCHANGE_NAME: ex1
-      TG_CHAT_ID: "@svoddru"
+      TG_CHAT_ID: "-1001700331408"
       Q1: rabbit://q1
       TG_BOT_TOKEN_FILE: /run/secrets/tg_bot_token
       SENTRY_DSN_FILE: /run/secrets/sentry_dsn

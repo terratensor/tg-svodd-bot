@@ -3,13 +3,13 @@ module tg-svodd-bot
 go 1.20
 
 require (
+	github.com/getsentry/sentry-go v0.23.0
 	gocloud.dev v0.33.0
 	gocloud.dev/pubsub/rabbitpubsub v0.33.0
 	golang.org/x/net v0.13.0
 )
 
 require (
-	github.com/getsentry/sentry-go v0.23.0 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/googleapis/gax-go/v2 v2.12.0 // indirect
