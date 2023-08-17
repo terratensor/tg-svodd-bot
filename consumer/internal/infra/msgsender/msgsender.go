@@ -24,12 +24,23 @@ func Send(ctx context.Context, messages []string) {
 		token)
 	chatID := os.Getenv("TG_CHAT_ID")
 
+	button := message.InlineButton{
+		Text: "Открыть комментарий на ФКТ",
+		URL:  "https://xn----8sba0bbi0cdm.xn--p1ai/qa/question/view-5723#:~:text=13:07%2017.08.2023",
+	}
+
+	inlineKeyboard := make([][]message.InlineButton, 1)
+	inlineKeyboard[0] = append(inlineKeyboard[0], button)
+
 	for _, text := range messages {
 
 		msg := &message.Message{
 			ChatID:    chatID,
 			Text:      text,
 			ParseMode: "HTML",
+			ReplyMarkup: message.ReplyMarkup{
+				InlineKeyboard: inlineKeyboard,
+			},
 		}
 
 		err := sendMessage(url, msg)
