@@ -99,10 +99,10 @@ func processBlockquote(node *html.Node) string {
 	var builder strings.Builder
 	chunks := strings.SplitAfter(text, "\n")
 	for _, chunk := range chunks {
-		builder.WriteString(fmt.Sprintf("<i>%v</i>", strings.TrimSpace(chunk)))
+		builder.WriteString(fmt.Sprintf("<i>%v</i>\n", strings.TrimSpace(chunk)))
 	}
 
-	return builder.String()
+	return strings.TrimSpace(builder.String())
 }
 
 // Перебирает аттрибуты токена в цикле и возвращает bool
