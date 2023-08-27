@@ -15,7 +15,7 @@ import (
 	"github.com/getsentry/sentry-go"
 )
 
-func Send(ctx context.Context, messages []string) {
+func Send(ctx context.Context, messages []string, headers map[string]string) {
 
 	contents, _ := os.ReadFile(os.Getenv("TG_BOT_TOKEN_FILE"))
 	token := fmt.Sprintf("%v", strings.Trim(string(contents), "\r\n"))
@@ -24,7 +24,13 @@ func Send(ctx context.Context, messages []string) {
 		token)
 	chatID := os.Getenv("TG_CHAT_ID")
 
-	for _, text := range messages {
+	link := headers["comment_link"]
+
+	for n, text := range messages {
+
+		if len(messages) == n+1 {
+			text = fmt.Sprintf("%v\n\n%v", text, link)
+		}
 
 		msg := &message.Message{
 			ChatID:    chatID,
