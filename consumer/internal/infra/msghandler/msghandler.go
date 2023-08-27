@@ -37,7 +37,7 @@ func Handler(ctx context.Context, ch chan Request, wg *sync.WaitGroup) {
 				log.Printf("error: %v Text: %s", err, r.Message)
 			}
 			// Отправляем подготовленные сообщения в телеграм
-			msgsender.Send(ctx, messages)
+			msgsender.Send(ctx, messages, r.Headers)
 		}
 	}
 }
