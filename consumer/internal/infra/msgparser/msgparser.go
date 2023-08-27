@@ -13,6 +13,9 @@ import (
 func Parse(msg string) ([]string, error) {
 	n, _ := html.Parse(strings.NewReader(msg))
 
+	//var bufInnerHtml bytes.Buffer
+	//w := io.Writer(&bufInnerHtml)
+
 	var builder strings.Builder
 	var f func(*html.Node)
 
@@ -30,6 +33,16 @@ func Parse(msg string) ([]string, error) {
 			builder.WriteString(fmt.Sprintf("\n%s\n", processBlockquote(n)))
 			return
 		}
+		// Обработка ссылок a href
+		//if n.Type == html.ElementNode && n.Data == "a" {
+		//	err := html.Render(w, n)
+		//	if err != nil {
+		//		return
+		//	}
+		//	builder.WriteString(bufInnerHtml.String())
+		//	bufInnerHtml.Reset()
+		//	return
+		//}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			f(c)
 		}

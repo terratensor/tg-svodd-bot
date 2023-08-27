@@ -29,11 +29,17 @@ func Send(ctx context.Context, messages []string) {
 		URL:  "https://xn----8sba0bbi0cdm.xn--p1ai/qa/question/view-5723#:~:text=13:07%2017.08.2023",
 	}
 
+	link := "\n\n<a href=\"https://фкт-алтай.рф/qa/question/view-5290#:~:text=16:38%2027.08.2023\">Перейти к комментарию на ФКТ</a>"
+
 	inlineKeyboard := make([][]message.InlineButton, 1)
 	inlineKeyboard[0] = append(inlineKeyboard[0], button)
+	ml := len(messages)
 
-	for _, text := range messages {
+	for n, text := range messages {
 
+		if ml == n+1 {
+			text = text + link
+		}
 		msg := &message.Message{
 			ChatID:    chatID,
 			Text:      text,
