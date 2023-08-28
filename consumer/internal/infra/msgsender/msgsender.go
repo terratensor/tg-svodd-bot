@@ -20,7 +20,7 @@ func Send(ctx context.Context, messages []string, headers map[string]string) {
 	contents, _ := os.ReadFile(os.Getenv("TG_BOT_TOKEN_FILE"))
 	token := fmt.Sprintf("%v", strings.Trim(string(contents), "\r\n"))
 
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage",
+	tgUrl := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage",
 		token)
 	chatID := os.Getenv("TG_CHAT_ID")
 
@@ -29,7 +29,7 @@ func Send(ctx context.Context, messages []string, headers map[string]string) {
 	for n, text := range messages {
 
 		if len(messages) == n+1 {
-			text = fmt.Sprintf("%v\n\n%v", text, link)
+			text = fmt.Sprintf("%v\n\n★ <a href=\"%v\">Источник</a>", text, link)
 		}
 
 		msg := &message.Message{
@@ -38,7 +38,7 @@ func Send(ctx context.Context, messages []string, headers map[string]string) {
 			ParseMode: "HTML",
 		}
 
-		err := sendMessage(url, msg)
+		err := sendMessage(tgUrl, msg)
 		if err != nil {
 			cm := fmt.Sprintf("error: %v Text: %s", err, msg.Text)
 			log.Println(cm)
