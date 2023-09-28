@@ -54,6 +54,17 @@ func splitMessage(msg string, chunkSize int) []string {
 	chunks := strings.SplitAfter(msg, "\n")
 
 	for _, chunk := range chunks {
+
+		// Удаляем пробелы и если после этого chunk будет пустым то пропускаем итерацию.
+		// Причина https://github.com/terratensor/tg-svodd-bot/issues/13
+		chunk = strings.TrimSpace(chunk)
+		if utf8.RuneCountInString(chunk) == 0 {
+			continue
+		}
+
+		// Добавляем перенос строки т.к. ранее были обрезаны все пробелы функцией TrimSpace
+		builder.WriteString("\n")
+
 		if utf8.RuneCountInString(builder.String())+utf8.RuneCountInString(chunk) < chunkSize {
 			builder.WriteString(chunk)
 		} else {
@@ -61,6 +72,9 @@ func splitMessage(msg string, chunkSize int) []string {
 			builder.Reset()
 			builder.WriteString(chunk)
 		}
+
+		// Добавляем перенос строки в конце абзаца т.к. ранее были обрезаны все пробелы функцией TrimSpace
+		builder.WriteString("\n")
 	}
 	// При завершении цикла проверяем остался ли в билдере текст,
 	// если да, то добавляем текс в срез сообщений
