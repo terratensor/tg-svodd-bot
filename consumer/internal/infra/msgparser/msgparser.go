@@ -30,6 +30,12 @@ func Parse(msg string) ([]string, error) {
 			builder.WriteString(fmt.Sprintf("\n%s\n", processBlockquote(n)))
 			return
 		}
+		if n.Type == html.ElementNode && nodeHasRequiredCssClass("link", n) {
+			link := getInnerText(n)
+			link = tgLinkClipper(link)
+			builder.WriteString(fmt.Sprintf("%v", link))
+			return
+		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			f(c)
 		}
@@ -99,7 +105,9 @@ func processBlockquote(node *html.Node) string {
 			continue
 		}
 		if el.Type == html.ElementNode && nodeHasRequiredCssClass("link", el) {
-			text += fmt.Sprintf("\n%v\n", strings.TrimSpace(getInnerText(el)))
+			link := getInnerText(el)
+			link = tgLinkClipper(link)
+			text += fmt.Sprintf(" %v", link)
 		}
 	}
 
@@ -117,6 +125,28 @@ func processBlockquote(node *html.Node) string {
 	}
 
 	return strings.TrimSpace(builder.String())
+}
+
+// tgLinkClipper вырезает из url на телеграм канал схему и подставляет нижнее подчеркивание перед адресом
+// необходимо для того, чтобы телеграм ссылки отображались как текст и не открывались.
+// Исключение составляет канал svoddru
+func tgLinkClipper(link string) string {
+
+	if strings.Contains(link, "https://t.me/svoddru") {
+		return link
+	}
+
+	if strings.Contains(link, "https://t.me") {
+		link = strings.ReplaceAll(link, "https://", "")
+		link = fmt.Sprintf("_%v", link)
+	}
+
+	if strings.Contains(link, "http://t.me") {
+		link = strings.ReplaceAll(link, "http://", "")
+		link = fmt.Sprintf("_%v", link)
+	}
+
+	return link
 }
 
 // Перебирает аттрибуты токена в цикле и возвращает bool
