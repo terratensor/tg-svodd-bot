@@ -22,6 +22,7 @@ services:
       - rmq-net
       - tg-bot-net
     environment:
+      APP_ENV: dev
       RABBIT_SERVER_URL: amqp://rmq
       RABBIT_EXCHANGE_NAME: ex1
       TG_CHAT_ID: "-1001700331408"
