@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 	"sync"
 	"tg-svodd-bot/consumer/internal/infra/msghandler"
 
@@ -37,16 +36,7 @@ func Run(ctx context.Context, chout chan msghandler.Request, wg *sync.WaitGroup)
 	for {
 		msg, err := subs.Receive(ctx)
 		if err != nil {
-
 			sentry.CaptureMessage(fmt.Sprint(err))
-			// Осуществляется проверка по содержимому строки ошибки на совпадение текста.
-			// Не нашел способа лучше, без привязки к содержимому строки ошибки.
-			// На самом деле такая ошибка не должна возникать, т.к когда запущен сервер очередей, уже должна быть создана вся структура и очереди
-			// Надо добавить создание очереди q1 на сервисах svodd
-			if strings.Contains(fmt.Sprint(err), "NOT_FOUND - no queue 'q1' in vhost '/'") {
-				log.Printf("failure, restart required: %v", err)
-				os.Exit(1)
-			}
 			log.Printf("Receiving message: %v", err)
 			return err
 		}
