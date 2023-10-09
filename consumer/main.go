@@ -48,8 +48,11 @@ func main() {
 
 	go func() {
 		err := msgreceiver.Run(ctx, ch, wg)
+		// Обрабатываем ошибку и выходим с кодом 1, для того чтобы инициировать перезапуск докер контейнера.
+		// Возможно тут имеет смысл сделать сервис проверки health, но пока так
 		if err != nil {
-			log.Printf("failure, restart required: %v", err)
+			log.Printf("%v\r\n failure, restart required", err)
+			sentry.CaptureMessage(fmt.Sprint(err))
 			os.Exit(1)
 		}
 	}()
