@@ -13,6 +13,7 @@ services:
       - rmq-net
       - tg-bot-net
     environment:
+      APP_ENV: prod
       RABBIT_SERVER_URL: amqp://rmq
       RABBIT_EXCHANGE_NAME: ex1
       TG_CHAT_ID: "@svoddru"
@@ -28,9 +29,6 @@ services:
         constraints: [ node.role == manager ]
       restart_policy:
         condition: on-failure
-        delay: 10s
-        max_attempts: 100
-        window: 120s
 
 secrets:
   tg_bot_token:

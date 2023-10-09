@@ -13,7 +13,7 @@ import (
 	"gocloud.dev/pubsub"
 )
 
-func Run(ctx context.Context, chout chan msghandler.Request, wg *sync.WaitGroup) {
+func Run(ctx context.Context, chout chan msghandler.Request, wg *sync.WaitGroup) error {
 	defer wg.Done()
 
 	// pubsub.OpenSubscription creates a *pubsub.Subscription from a URL.
@@ -21,8 +21,7 @@ func Run(ctx context.Context, chout chan msghandler.Request, wg *sync.WaitGroup)
 	// variable RABBIT_SERVER_URL and open the queue "myqueue".
 	subs, err := pubsub.OpenSubscription(ctx, os.Getenv("Q1"))
 	if err != nil {
-		sentry.CaptureMessage(fmt.Sprint(err))
-		log.Panic(err)
+		return err
 	}
 
 	defer func(subs *pubsub.Subscription, ctx context.Context) {
@@ -36,9 +35,8 @@ func Run(ctx context.Context, chout chan msghandler.Request, wg *sync.WaitGroup)
 	for {
 		msg, err := subs.Receive(ctx)
 		if err != nil {
-			sentry.CaptureMessage(fmt.Sprint(err))
 			log.Printf("Receiving message: %v", err)
-			break
+			return err
 		}
 		select {
 		case <-ctx.Done():
