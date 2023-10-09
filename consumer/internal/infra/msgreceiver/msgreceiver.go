@@ -14,7 +14,7 @@ import (
 	"gocloud.dev/pubsub"
 )
 
-func Run(ctx context.Context, chout chan msghandler.Request, wg *sync.WaitGroup) {
+func Run(ctx context.Context, chout chan msghandler.Request, wg *sync.WaitGroup) error {
 	defer wg.Done()
 
 	// pubsub.OpenSubscription creates a *pubsub.Subscription from a URL.
@@ -48,7 +48,7 @@ func Run(ctx context.Context, chout chan msghandler.Request, wg *sync.WaitGroup)
 				os.Exit(1)
 			}
 			log.Printf("Receiving message: %v", err)
-			break
+			return err
 		}
 		select {
 		case <-ctx.Done():
