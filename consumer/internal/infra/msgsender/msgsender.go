@@ -38,12 +38,19 @@ func Send(ctx context.Context, messages []string, headers map[string]string) {
 			ParseMode: "HTML",
 		}
 
-		err := sendMessage(tgUrl, msg)
-		if err != nil {
-			cm := fmt.Sprintf("error: %v Text: %s", err, msg.Text)
-			log.Println(cm)
-			sentry.CaptureMessage(cm)
+		for i := 1; i <= 5; i++ {
+			// Делаем 5 попыток отправки, если получена ошибка, если нет, то цикл сразу завершается
+			err := sendMessage(tgUrl, msg)
+			if err != nil {
+				cm := fmt.Sprintf("error: %v Text: %s", err, msg.Text)
+				log.Println(cm)
+				sentry.CaptureMessage(cm)
+				time.Sleep(time.Second * 3)
+				continue
+			}
+			break
 		}
+
 		// Ожидаем 3 секунды после отправки, необходимо для соблюдения лимитов отправки сообщений ботом, 20 сообщений в минуту
 		time.Sleep(time.Second * 3)
 	}
