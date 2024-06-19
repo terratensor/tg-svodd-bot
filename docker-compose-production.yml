@@ -26,7 +26,7 @@ services:
     command: './tg-svodd-bot'
     deploy:
       placement:
-        constraints: [ node.role == manager ]
+        constraints: [ node.labels.worker == worker-1 ]
       restart_policy:
         condition: on-failure
 
