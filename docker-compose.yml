@@ -21,6 +21,7 @@ services:
     networks:
       - rmq-net
       - tg-bot-net
+      - svodd-network
     environment:
       APP_ENV: dev
       RABBIT_SERVER_URL: amqp://rmq
@@ -29,9 +30,14 @@ services:
       Q1: rabbit://q1
       TG_BOT_TOKEN_FILE: /run/secrets/tg_bot_token
       SENTRY_DSN_FILE: /run/secrets/sentry_dsn
+      POSTGRES_HOST: app-postgres
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD_FILE: /run/secrets/app_db_password
+      POSTGRES_DB: app
     secrets:
       - tg_bot_token
       - sentry_dsn
+      - app_db_password
     command: './tg-svodd-bot'
     deploy:
       restart_policy:
@@ -42,6 +48,8 @@ secrets:
     file: ./docker/development/secrets/tg_bot_token
   sentry_dsn:
     file: ./docker/development/secrets/sentry_dsn
+  app_db_password:
+    file: ./docker/development/secrets/app_db_password
 
 networks:
   rmq-net:

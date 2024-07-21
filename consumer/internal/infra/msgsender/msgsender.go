@@ -8,14 +8,35 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"tg-svodd-bot/consumer/internal/domain/message"
+	"tg-svodd-bot/consumer/internal/repos/tgmessage"
 	"time"
 
 	"github.com/getsentry/sentry-go"
 )
 
-func Send(ctx context.Context, messages []string, headers map[string]string) {
+// HTTPError represents an HTTP error returned by a server.
+type HTTPError struct {
+	StatusCode int
+	Status     string
+}
+
+// Error returns a string representation of the HTTP error.
+//
+// No parameters.
+// Returns a string.
+func (err HTTPError) Error() string {
+	return fmt.Sprintf("failed to send successful request. Status was %s", err.Status)
+}
+
+type Msgresponse struct {
+	Ok     bool
+	Result map[string]interface{}
+}
+
+func Send(ctx context.Context, messages []string, headers map[string]string, tgmessages *tgmessage.TgMessages) {
 
 	contents, _ := os.ReadFile(os.Getenv("TG_BOT_TOKEN_FILE"))
 	token := fmt.Sprintf("%v", strings.Trim(string(contents), "\r\n"))
@@ -25,6 +46,12 @@ func Send(ctx context.Context, messages []string, headers map[string]string) {
 	chatID := os.Getenv("TG_CHAT_ID")
 
 	link := headers["comment_link"]
+	// Парсим ID комментария
+	commentID, err := strconv.Atoi(headers["comment_id"])
+	if err != nil {
+		log.Printf("can not parse comment_id %v", err)
+		commentID = 0
+	}
 
 	for n, text := range messages {
 
@@ -38,16 +65,30 @@ func Send(ctx context.Context, messages []string, headers map[string]string) {
 			ParseMode: "HTML",
 		}
 
-		for i := 1; i <= 5; i++ {
-			// Делаем 5 попыток отправки, если получена ошибка, если нет, то цикл сразу завершается
-			err := sendMessage(tgUrl, msg)
+		for i := 1; i <= 100; i++ {
+			// Делаем 100 попыток отправки, если получена ошибка, если нет, то цикл сразу завершается
+			messageID, err := sendMessage(tgUrl, msg)
 			if err != nil {
 				cm := fmt.Sprintf("error: %v Text: %s", err, msg.Text)
 				log.Println(cm)
 				sentry.CaptureMessage(cm)
-				time.Sleep(time.Second * 3)
+				time.Sleep(time.Second * 5)
 				continue
 			}
+			// Формируем сообщение в БД
+			tgMessage := tgmessage.TgMessage{
+				CommentID: commentID,
+				MessageID: *messageID,
+			}
+
+			// Сохраняем ID сообщения в БД
+			err = tgmessages.Create(context.Background(), tgMessage)
+			if err != nil {
+				log.Printf("error create tgmessage ID: %v", err)
+			} else {
+				log.Printf("tgMessage: %+v", tgMessage)
+			}
+
 			break
 		}
 
@@ -57,28 +98,34 @@ func Send(ctx context.Context, messages []string, headers map[string]string) {
 }
 
 // sendMessage sends a message to given URL.
-func sendMessage(url string, message *message.Message) error {
+func sendMessage(url string, message *message.Message) (*int32, error) {
 	payload, err := json.Marshal(message)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	response, err := http.Post(url, "application/json", bytes.NewBuffer(payload))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer response.Body.Close()
 
-	var j interface{}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, &HTTPError{
+			StatusCode: response.StatusCode,
+			Status:     response.Status,
+		}
+	}
+
+	var j Msgresponse
+	var messageID int32
 
 	err = json.NewDecoder(response.Body).Decode(&j)
 	if err != nil {
 		log.Printf("filed to decode response body %v", err)
 	} else {
 		log.Printf("response body: %v", j)
+		messageID = int32(j.Result["message_id"].(float64))
 	}
 
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to send successful request. Status was %q. Response body: %v", response.Status, j)
-	}
-	return nil
+	return &messageID, nil
 }
