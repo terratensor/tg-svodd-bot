@@ -8,8 +8,11 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"tg-svodd-bot/consumer/internal/db/pgstore"
 	"tg-svodd-bot/consumer/internal/infra/msghandler"
 	"tg-svodd-bot/consumer/internal/infra/msgreceiver"
+	"tg-svodd-bot/consumer/internal/lib/secret"
+	"tg-svodd-bot/consumer/internal/repos/tgmessage"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -42,6 +45,17 @@ func main() {
 		}
 	}
 
+	// Подготавливаем подключение к БД
+	dsn := newDBConnectionString()
+	pgst, err := pgstore.NewMessages(dsn)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pgst.Close()
+
+	tgmessages := tgmessage.NewTgMessages(pgst)
+
+	// Подготавливаем канал для обработки комментариев
 	ch := make(chan msghandler.Request, 100)
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
@@ -57,7 +71,7 @@ func main() {
 		}
 	}()
 
-	go msghandler.Handler(ctx, ch, wg)
+	go msghandler.Handler(ctx, ch, wg, tgmessages)
 
 	if mode == "PROD" {
 		// Flush buffered events before the program terminates.
@@ -66,4 +80,13 @@ func main() {
 
 	wg.Wait()
 	stop()
+}
+
+func newDBConnectionString() string {
+	dbUser := os.Getenv("POSTGRES_USER")
+	dbPassword := strings.TrimRight(string(secret.Read(os.Getenv("POSTGRES_PASSWORD_FILE"))), "\r\n")
+	dbName := os.Getenv("POSTGRES_DB")
+	dbHost := os.Getenv("POSTGRES_HOST")
+
+	return fmt.Sprintf("postgresql://%s:%s@%s/%s?sslmode=disable", dbUser, dbPassword, dbHost, dbName)
 }

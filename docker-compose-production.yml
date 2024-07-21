@@ -6,12 +6,10 @@ services:
     build:
       context: ./
       dockerfile: Dockerfile
-    restart: always
-    depends_on:
-      - registry
     networks:
       - rmq-net
       - tg-bot-net
+      - svodd-network
     environment:
       APP_ENV: prod
       RABBIT_SERVER_URL: amqp://rmq
@@ -20,9 +18,14 @@ services:
       Q1: rabbit://q1
       TG_BOT_TOKEN_FILE: /run/secrets/tg_bot_token
       SENTRY_DSN_FILE: /run/secrets/sentry_dsn
+      POSTGRES_HOST: ${APP_POSTGRES_HOST}
+      POSTGRES_USER: ${APP_POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/app_db_password
+      POSTGRES_DB: ${APP_POSTGRES_DB}
     secrets:
       - tg_bot_token
       - sentry_dsn
+      - app_db_password
     command: './tg-svodd-bot'
     deploy:
       placement:
@@ -35,9 +38,14 @@ secrets:
     file: ${APP_TG_BOT_TOKEN_FILE}
   sentry_dsn:
     file: ${APP_SENTRY_DSN_FILE}
+  app_db_password:
+    file: ${APP_DB_PASSWORD_FILE}
 
 networks:
   rmq-net:
     name: rmq-net
+    external: true
+  svodd-network:
+    name: svodd-network
     external: true
   tg-bot-net:
