@@ -2,15 +2,37 @@ package msgparser
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"golang.org/x/net/html"
 )
 
+type Parser struct {
+	maxChars int
+	maxWords int
+}
+
+func New() *Parser {
+	maxChars, err := strconv.Atoi(os.Getenv("QUOTE_MAX_CHARS"))
+	if err != nil || maxChars == 0 {
+		maxChars = 350
+	}
+	maxWords, _ := strconv.Atoi(os.Getenv("QUOTE_MAX_WORDS"))
+	if err != nil || maxWords == 0 {
+		maxWords = 40
+	}
+	return &Parser{
+		maxChars: maxChars,
+		maxWords: maxWords,
+	}
+}
+
 // Parse обрабатывает текст сообщения для отправки в телеграм.
 // Устанавливает необходимые html теги
-func Parse(msg string) ([]string, error) {
+func (p *Parser) Parse(msg string) ([]string, error) {
 	n, _ := html.Parse(strings.NewReader(msg))
 
 	var builder strings.Builder
@@ -27,7 +49,7 @@ func Parse(msg string) ([]string, error) {
 			return
 		}
 		if n.Type == html.ElementNode && n.Data == "blockquote" {
-			builder.WriteString(fmt.Sprintf("\n%s\n", processBlockquote(n)))
+			builder.WriteString(fmt.Sprintf("\n%s\n", p.processBlockquote(n)))
 			return
 		}
 		if n.Type == html.ElementNode && nodeHasRequiredCssClass("link", n) {
@@ -91,7 +113,7 @@ func splitMessage(msg string, chunkSize int) []string {
 	return msgs
 }
 
-func processBlockquote(node *html.Node) string {
+func (p *Parser) processBlockquote(node *html.Node) string {
 	var text string
 	newline := ""
 	for el := node.FirstChild; el != nil; el = el.NextSibling {
@@ -119,10 +141,23 @@ func processBlockquote(node *html.Node) string {
 	// то не должно быть блоков, которые окажутся без закрывающих тегов </i>
 	text = strings.TrimSpace(html.EscapeString(text))
 	var builder strings.Builder
+	// Изменена логика, разбиваем цитату по разделителю \n и работаем только с первым элементом среза,
+	// обрабатываем этот фрагмент функцией TruncateText и добавляем его в билдер
 	chunks := strings.SplitAfter(text, "\n")
-	for _, chunk := range chunks {
-		builder.WriteString(fmt.Sprintf("<i>%v</i>\n", strings.TrimSpace(chunk)))
+
+	quoteEnd := ""
+	if len(chunks) > 0 {
+		quote := p.truncateText(chunks[0])
+		runes := []rune(quote)
+		// Если последний символ не "…" и количество строк в цитате больше одной, то добавляем "…"
+		if runes[len(runes)-1] != '…' && len(chunks) > 1 {
+			quoteEnd = "…"
+		}
+		builder.WriteString(fmt.Sprintf("<i>%v %v</i>", strings.TrimSpace(quote), quoteEnd))
 	}
+	// for _, chunk := range chunks {
+	// 	builder.WriteString(fmt.Sprintf("<i>%v</i>\n", strings.TrimSpace(chunk)))
+	// }
 
 	return strings.TrimSpace(builder.String())
 }
@@ -172,4 +207,24 @@ func getInnerText(node *html.Node) string {
 		}
 	}
 	return ""
+}
+
+// TruncateText truncates the input text to a certain number of characters or words.
+//
+// It takes a string input text and truncates it based on the maximum characters and words allowed.
+// Returns the truncated text.
+func (p *Parser) truncateText(text string) string {
+	words := strings.Split(text, " ")
+	if len(words) <= p.maxWords {
+		return text
+	}
+	truncatedText := ""
+	for _, word := range words {
+		if len(truncatedText)+len(word)+1 <= p.maxChars {
+			truncatedText += word + " "
+		} else {
+			break
+		}
+	}
+	return truncatedText + "…"
 }

@@ -34,6 +34,8 @@ services:
       POSTGRES_USER: app
       POSTGRES_PASSWORD_FILE: /run/secrets/app_db_password
       POSTGRES_DB: app
+      QUOTE_MAX_WORDS: 40
+      QUOTE_MAX_CHARS: 350
     secrets:
       - tg_bot_token
       - sentry_dsn
@@ -55,3 +57,6 @@ networks:
   rmq-net:
     name: rmq-net
   tg-bot-net:
+  svodd-network:
+    name: svodd-network
+    external: true
