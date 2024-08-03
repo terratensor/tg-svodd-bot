@@ -22,6 +22,7 @@ import (
 
 func main() {
 
+	initializeTimezone()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 
 	mode := os.Getenv("APP_ENV")
@@ -89,4 +90,18 @@ func newDBConnectionString() string {
 	dbHost := os.Getenv("POSTGRES_HOST")
 
 	return fmt.Sprintf("postgresql://%s:%s@%s/%s?sslmode=disable", dbUser, dbPassword, dbHost, dbName)
+}
+
+func initializeTimezone() {
+	if timezone := os.Getenv("TZ"); timezone != "" {
+		if location, err := time.LoadLocation(timezone); err != nil {
+			log.Printf("error loading timezone '%s': %v\n", timezone, err)
+		} else {
+			time.Local = location
+		}
+	}
+
+	now := time.Now()
+	log.Printf("Local timezone: %s. Service started at %s", time.Local.String(),
+		now.Format("2006-01-02T15:04:05.000 MST"))
 }

@@ -103,7 +103,12 @@ func sendMessage(url string, message *message.Message) (*int32, error) {
 	if err != nil {
 		return nil, err
 	}
-	response, err := http.Post(url, "application/json", bytes.NewBuffer(payload))
+
+	// Отправляем запрос с установленным ограниченеием на ответ в 10 секунд.
+	client := http.Client{
+		Timeout: 10 * time.Second,
+	}
+	response, err := client.Post(url, "application/json", bytes.NewBuffer(payload))
 	if err != nil {
 		return nil, err
 	}
