@@ -212,7 +212,7 @@ func (p *Parser) truncateText(text string) string {
 		return text
 	}
 	truncatedText := ""
-	// TODO улучшить формулу расчета, т.к. символы "", ) и ( и др, установить какие еще. 
+	// TODO улучшить формулу расчета, т.к. символы "", ) и ( и др, установить какие еще.
 	// в рунах эти символы занимают 3 позиции, надо определять эти символы и пересчитывать count
 	for _, word := range words {
 		if utf8.RuneCountInString(truncatedText)+utf8.RuneCountInString(word)+1 <= p.maxChars+10 {
