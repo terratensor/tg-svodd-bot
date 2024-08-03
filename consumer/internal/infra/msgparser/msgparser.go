@@ -140,24 +140,16 @@ func (p *Parser) processBlockquote(node *html.Node) string {
 	// и в случае превышения будет произведена разбивка текста сообщения по разделителю \n,
 	// то не должно быть блоков, которые окажутся без закрывающих тегов </i>
 	text = strings.TrimSpace(html.EscapeString(text))
-	var builder strings.Builder
+	text = p.truncateText(text)
+
 	// Изменена логика, разбиваем цитату по разделителю \n и работаем только с первым элементом среза,
 	// обрабатываем этот фрагмент функцией TruncateText и добавляем его в билдер
 	chunks := strings.SplitAfter(text, "\n")
 
-	quoteEnd := ""
-	if len(chunks) > 0 {
-		quote := p.truncateText(chunks[0])
-		runes := []rune(quote)
-		// Если последний символ не "…" и количество строк в цитате больше одной, то добавляем "…"
-		if runes[len(runes)-1] != '…' && len(chunks) > 1 {
-			quoteEnd = "…"
-		}
-		builder.WriteString(fmt.Sprintf("<i>%v %v</i>", strings.TrimSpace(quote), quoteEnd))
+	var builder strings.Builder
+	for _, chunk := range chunks {
+		builder.WriteString(fmt.Sprintf("<i>%v</i>\n", strings.TrimSpace(chunk)))
 	}
-	// for _, chunk := range chunks {
-	// 	builder.WriteString(fmt.Sprintf("<i>%v</i>\n", strings.TrimSpace(chunk)))
-	// }
 
 	return strings.TrimSpace(builder.String())
 }
