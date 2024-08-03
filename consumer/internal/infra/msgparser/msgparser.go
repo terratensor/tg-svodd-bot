@@ -22,7 +22,7 @@ func New() *Parser {
 	}
 	maxWords, _ := strconv.Atoi(os.Getenv("QUOTE_MAX_WORDS"))
 	if err != nil || maxWords == 0 {
-		maxWords = 50
+		maxWords = 40
 	}
 	return &Parser{
 		maxChars: maxChars,
