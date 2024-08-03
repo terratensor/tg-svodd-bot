@@ -206,17 +206,24 @@ func getInnerText(node *html.Node) string {
 // It takes a string input text and truncates it based on the maximum characters and words allowed.
 // Returns the truncated text.
 func (p *Parser) truncateText(text string) string {
+	count := utf8.RuneCountInString(text)
 	words := strings.Split(text, " ")
 	if len(words) <= p.maxWords {
 		return text
 	}
 	truncatedText := ""
+	// TODO улучшить формулу расчета, т.к. символы "", ) и ( и др, установить какие еще. 
+	// в рунах эти символы занимают 3 позиции, надо определять эти символы и пересчитывать count
 	for _, word := range words {
-		if len(truncatedText)+len(word)+1 <= p.maxChars {
+		if utf8.RuneCountInString(truncatedText)+utf8.RuneCountInString(word)+1 <= p.maxChars+10 {
 			truncatedText += word + " "
 		} else {
 			break
 		}
 	}
-	return truncatedText + "…"
+
+	if utf8.RuneCountInString(truncatedText) < count {
+		return truncatedText + "…"
+	}
+	return truncatedText
 }
