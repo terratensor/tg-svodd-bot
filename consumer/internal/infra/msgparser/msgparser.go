@@ -64,7 +64,7 @@ func (p *Parser) Parse(msg string) ([]string, error) {
 	}
 	f(n)
 
-	messages := splitMessage(builder.String(), 4096)
+	messages := splitMessage(strings.TrimSpace(builder.String()), 4096)
 
 	return messages, nil
 }
@@ -139,8 +139,14 @@ func (p *Parser) processBlockquote(node *html.Node) string {
 	// таким образом, когда в последующем будет производиться проверка на превышение разрешенной длины сообщения 4096,
 	// и в случае превышения будет произведена разбивка текста сообщения по разделителю \n,
 	// то не должно быть блоков, которые окажутся без закрывающих тегов </i>
-	text = strings.TrimSpace(html.EscapeString(text))
+
+	// Cначала удаляем лишние пробелы в начале и конце текста
+	text = strings.TrimSpace(text)
+	// Ограничиваем размеры цитируемого отрывка
 	text = p.truncateText(text)
+	// Только после этого запукаем фукцию экранирования специальных символов,
+	// т.к. функция после экрвнирования увеличивает размер строки за счет преобразования символов: characters like "<" to become "&lt;"
+	text = html.EscapeString(text)
 
 	// Изменена логика, разбиваем цитату по разделителю \n и работаем только с первым элементом среза,
 	// обрабатываем этот фрагмент функцией TruncateText и добавляем его в билдер
@@ -212,10 +218,8 @@ func (p *Parser) truncateText(text string) string {
 		return text
 	}
 	truncatedText := ""
-	// TODO улучшить формулу расчета, т.к. символы "", ) и ( и др, установить какие еще.
-	// в рунах эти символы занимают 3 позиции, надо определять эти символы и пересчитывать count
 	for _, word := range words {
-		if utf8.RuneCountInString(truncatedText)+utf8.RuneCountInString(word)+1 <= p.maxChars+10 {
+		if utf8.RuneCountInString(truncatedText)+utf8.RuneCountInString(word)+1 <= p.maxChars {
 			truncatedText += word + " "
 		} else {
 			break
