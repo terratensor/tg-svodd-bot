@@ -227,7 +227,25 @@ func (p *Parser) truncateText(text string) string {
 	}
 
 	if utf8.RuneCountInString(truncatedText) < count {
-		return truncatedText + "…"
+		return ModifyString(strings.TrimSpace(truncatedText))
 	}
 	return truncatedText
+}
+
+// ModifyString replaces the last punctuation mark in the input string with an ellipsis.
+// It checks the last character of a string and replaces it with "…"
+// if it's present in a specified list, otherwise it appends "…" to the end of the string:
+func ModifyString(input string) string {
+	lastRune, _ := utf8.DecodeLastRuneInString(input)
+	punctuationMarks := []rune{' ', '.', ',', ':', ';', '…', '-', '–', '—', '=', '+'}
+
+	for _, punctuationMark := range punctuationMarks {
+		if lastRune == punctuationMark {
+			modifiedInput := []rune(input)
+			modifiedInput[len(modifiedInput)-1] = '…'
+			return string(modifiedInput)
+		}
+	}
+
+	return input + "…"
 }
