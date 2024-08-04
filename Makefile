@@ -2,7 +2,8 @@ down:
 	docker compose down --remove-orphans
 up:
 	docker compose up --build -d
-
+test:
+	go test -v ./...
 check:
 	golangci-lint run -v
 
