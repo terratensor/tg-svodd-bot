@@ -64,7 +64,7 @@ func (p *Parser) Parse(msg string) ([]string, error) {
 	}
 	f(n)
 
-	messages := splitMessage(builder.String(), 4096)
+	messages := splitMessage(strings.TrimSpace(builder.String()), 4096)
 
 	return messages, nil
 }
