@@ -16,7 +16,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Docker Login
       uses: azure/docker-login@v1
@@ -26,7 +26,7 @@ jobs:
         password: ${{ github.token }}
 
     - name: golangci-lint
-      uses: golangci/golangci-lint-action@v3
+      uses: golangci/golangci-lint-action@v6
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -40,7 +40,7 @@ jobs:
       run: go test -v ./...
 
     - name: Inject branch slug
-      uses: rlespinasse/github-slug-action@v3.x
+      uses: rlespinasse/github-slug-action@v5
 
     - name: Set image tag
       run: echo "::set-env name=IMAGE_TAG::${{ env.GITHUB_REF_SLUG }}-${GITHUB_RUN_NUMBER}"
