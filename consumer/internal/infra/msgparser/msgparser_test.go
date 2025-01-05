@@ -5,7 +5,7 @@ import (
 )
 
 func TestTruncateText(t *testing.T) {
-	p := &Parser{maxWords: 6, maxChars: 20}
+	p := &Parser{quoteMaxWords: 6, quoteMaxChars: 20}
 
 	tests := []struct {
 		name     string

@@ -24,6 +24,7 @@ services:
       POSTGRES_DB: ${APP_POSTGRES_DB}
       QUOTE_MAX_WORDS: 40
       QUOTE_MAX_CHARS: 350
+      MSG_MAX_CHARS: 4096
     secrets:
       - tg_bot_token
       - sentry_dsn

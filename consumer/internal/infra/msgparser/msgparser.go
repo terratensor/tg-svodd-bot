@@ -1,38 +1,46 @@
 package msgparser
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"tg-svodd-bot/consumer/internal/infra/msgsign"
 	"unicode/utf8"
 
 	"golang.org/x/net/html"
 )
 
 type Parser struct {
-	maxChars int
-	maxWords int
+	msgMaxChars   int
+	quoteMaxChars int
+	quoteMaxWords int
 }
 
 func New() *Parser {
-	maxChars, err := strconv.Atoi(os.Getenv("QUOTE_MAX_CHARS"))
-	if err != nil || maxChars == 0 {
-		maxChars = 350
+	msgMaxChars, err := strconv.Atoi(os.Getenv("MSG_MAX_CHARS"))
+	if err != nil || msgMaxChars == 0 {
+		msgMaxChars = 4096
 	}
-	maxWords, _ := strconv.Atoi(os.Getenv("QUOTE_MAX_WORDS"))
-	if err != nil || maxWords == 0 {
-		maxWords = 40
+	quoteMaxChars, err := strconv.Atoi(os.Getenv("QUOTE_MAX_CHARS"))
+	if err != nil || quoteMaxChars == 0 {
+		quoteMaxChars = 350
+	}
+	quoteMaxWords, _ := strconv.Atoi(os.Getenv("QUOTE_MAX_WORDS"))
+	if err != nil || quoteMaxWords == 0 {
+		quoteMaxWords = 40
 	}
 	return &Parser{
-		maxChars: maxChars,
-		maxWords: maxWords,
+		msgMaxChars:   msgMaxChars,
+		quoteMaxChars: quoteMaxChars,
+		quoteMaxWords: quoteMaxWords,
 	}
 }
 
 // Parse обрабатывает текст сообщения для отправки в телеграм.
 // Устанавливает необходимые html теги
-func (p *Parser) Parse(msg string) ([]string, error) {
+func (p *Parser) Parse(msg string, headers map[string]string) ([]string, error) {
 	n, _ := html.Parse(strings.NewReader(msg))
 
 	var builder strings.Builder
@@ -64,53 +72,73 @@ func (p *Parser) Parse(msg string) ([]string, error) {
 	}
 	f(n)
 
-	messages := splitMessage(strings.TrimSpace(builder.String()), 4000)
+	messages, err := p.splitMessage(builder.String(), headers)
 
-	return messages, nil
+	return messages, err
 }
 
-// splitMessage разбивает текст комментария на блоки размером не более чем 4096 символов
+// splitMessage разбивает текст комментария на блоки размером не более,
+// чем 4096 символов с учетом длины подписи
 // разделитель для блоков \n
-func splitMessage(msg string, chunkSize int) []string {
+func (p *Parser) splitMessage(msg string, headers map[string]string) ([]string, error) {
+
+	msg = strings.TrimSpace(msg)
+
+	msgsign := msgsign.New(headers)
+	limit := p.msgMaxChars - msgsign.Len
+
 	var msgs []string
-	if utf8.RuneCountInString(msg) < chunkSize {
-		msgs = append(msgs, msg)
-		return msgs
+	if utf8.RuneCountInString(msg) < limit {
+		return []string{msg + msgsign.Value}, nil
 	}
 
 	var builder strings.Builder
 	chunks := strings.SplitAfter(msg, "\n")
+
+	// Сценарий, когда переносов строк не было, но сообщение все еще более 4096 символов
+	if len(chunks) == 1 {
+		// Если получили ошибку, то возвращаем сообщение с подписью и ловим ошибку от телеги bad request 400
+		// TODO подумать, что с этим сделать, верятность ошибки маленькая, почти нулевая
+		// Это означает, что в сообщении не было ниодного предложения отделенного точкой.
+		// TODO Все таки сделать обработку разделения сообщения по словам(токенам)?
+		return splitMessageBySentences(chunks[0], msgsign, limit)
+	}
 
 	for _, chunk := range chunks {
 
 		// Удаляем пробелы и если после этого chunk будет пустым то пропускаем итерацию.
 		// Причина https://github.com/terratensor/tg-svodd-bot/issues/13
 		chunk = strings.TrimSpace(chunk)
-		if utf8.RuneCountInString(chunk) == 0 {
+		if chunk == "" {
 			continue
 		}
 
 		// Добавляем перенос строки т.к. ранее были обрезаны все пробелы функцией TrimSpace
-		builder.WriteString("\n")
+		// builder.WriteString("\n")
 
-		if utf8.RuneCountInString(builder.String())+utf8.RuneCountInString(chunk) < chunkSize {
+		if utf8.RuneCountInString(builder.String())+(utf8.RuneCountInString(chunk)+2) < limit {
 			builder.WriteString(chunk)
+			builder.WriteString("\n\n")
+
 		} else {
 			msgs = append(msgs, builder.String())
 			builder.Reset()
 			builder.WriteString(chunk)
+			builder.WriteString("\n\n")
 		}
 
-		// Добавляем перенос строки в конце абзаца т.к. ранее были обрезаны все пробелы функцией TrimSpace
-		builder.WriteString("\n")
+		// Добавляем двойной перенос строки в конце абзаца т.к. ранее были обрезаны все пробелы функцией TrimSpace
+		// builder.WriteString("\n\n")
 	}
 	// При завершении цикла проверяем остался ли в билдере текст,
-	// если да, то добавляем текс в срез сообщений
+	// если да, то добавляем текст в срез сообщений
 	if builder.Len() > 0 {
+		builder.WriteString("\n\n")
 		msgs = append(msgs, builder.String())
 	}
 
-	return msgs
+	// Добавляем подпись в последний блок
+	return addSignature(msgs, msgsign)
 }
 
 func (p *Parser) processBlockquote(node *html.Node) string {
@@ -145,7 +173,7 @@ func (p *Parser) processBlockquote(node *html.Node) string {
 	// Ограничиваем размеры цитируемого отрывка
 	text = p.truncateText(text)
 	// Только после этого запукаем фукцию экранирования специальных символов,
-	// т.к. функция после экрвнирования увеличивает размер строки за счет преобразования символов: characters like "<" to become "&lt;"
+	// т.к. функция после экранирования увеличивает размер строки за счет преобразования символов: characters like "<" to become "&lt;"
 	text = html.EscapeString(text)
 
 	// Изменена логика, разбиваем цитату по разделителю \n и работаем только с первым элементом среза,
@@ -214,12 +242,12 @@ func getInnerText(node *html.Node) string {
 func (p *Parser) truncateText(text string) string {
 	count := utf8.RuneCountInString(text)
 	words := strings.Split(text, " ")
-	if len(words) <= p.maxWords {
+	if len(words) <= p.quoteMaxWords {
 		return text
 	}
 	truncatedText := ""
 	for _, word := range words {
-		if utf8.RuneCountInString(truncatedText)+utf8.RuneCountInString(word)+1 <= p.maxChars {
+		if utf8.RuneCountInString(truncatedText)+utf8.RuneCountInString(word)+1 <= p.quoteMaxChars {
 			truncatedText += word + " "
 		} else {
 			break
@@ -248,4 +276,59 @@ func ModifyString(input string) string {
 	}
 
 	return input + "…"
+}
+
+// splitMessageBySentences splits a text chunk into multiple messages based on sentence boundaries.
+// Each message is limited to a specified character length, accounting for a signature length.
+// It returns a slice of message strings and an error if the generated message is empty.
+func splitMessageBySentences(chunk string, msgsign *msgsign.Sign, limit int) ([]string, error) {
+	var msgs []string
+	// sentences []string Делим параграф на предложения, разделитель точка
+	sentences := strings.SplitAfter(chunk, ".")
+
+	var builder strings.Builder
+
+	for _, sentence := range sentences {
+
+		sentence = strings.TrimSpace(sentence)
+		if sentence == "" {
+			continue
+		}
+
+		if (utf8.RuneCountInString(builder.String()) + utf8.RuneCountInString(sentence)) < limit {
+			builder.WriteString(sentence)
+			builder.WriteString(" ")
+		} else {
+			msgs = append(msgs, strings.TrimSpace(builder.String()))
+			builder.Reset()
+			builder.WriteString(sentence)
+			builder.WriteString(" ")
+		}
+	}
+
+	// При завершении цикла проверяем остался ли в билдере текст,
+	// если да, то добавляем текст в срез сообщений
+	if builder.Len() > 0 {
+		msgs = append(msgs, builder.String())
+	}
+
+	// Добавляем подпись в последний блок
+	return addSignature(msgs, msgsign)
+}
+
+// addSignature adds the signature to the last message in the given slice of strings.
+//
+// The signature is added after trimming the last message and the resulting string is
+// used to replace the last element in the slice.
+//
+// The function returns the modified slice of strings.
+func addSignature(messages []string, signature *msgsign.Sign) ([]string, error) {
+	if len(messages) == 0 {
+		return nil, errors.New("func addSignature: empty messages slice")
+	}
+
+	lastMessage := messages[len(messages)-1]
+	lastMessage = strings.TrimSpace(lastMessage) + signature.Value
+	messages[len(messages)-1] = lastMessage
+	return messages, nil
 }
