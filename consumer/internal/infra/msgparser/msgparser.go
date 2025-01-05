@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"tg-svodd-bot/consumer/internal/infra/msgsign"
@@ -283,8 +284,10 @@ func ModifyString(input string) string {
 // It returns a slice of message strings and an error if the generated message is empty.
 func splitMessageBySentences(chunk string, msgsign *msgsign.Sign, limit int) ([]string, error) {
 	var msgs []string
-	// sentences []string Делим параграф на предложения, разделитель точка
-	sentences := strings.SplitAfter(chunk, ".")
+
+	// sentences := strings.SplitAfter(chunk, ".")
+    re := regexp.MustCompile(`[.?!]\s+`)
+    sentences := re.Split(chunk, -1)
 
 	var builder strings.Builder
 
