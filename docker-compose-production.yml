@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   tg-svodd-bot:
     image: ${REGISTRY}/tg-svodd-bot:${IMAGE_TAG}

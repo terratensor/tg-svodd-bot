@@ -3,8 +3,8 @@ package msgparser
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"tg-svodd-bot/consumer/internal/infra/msgsign"
@@ -96,13 +96,21 @@ func (p *Parser) splitMessage(msg string, headers map[string]string) ([]string, 
 	var builder strings.Builder
 	chunks := strings.SplitAfter(msg, "\n")
 
-	// Сценарий, когда переносов строк не было, но сообщение все еще более 4096 символов
+	// Сценарии, когда переносов строк не было, но сообщение все еще более 4096 символов
+	// Разбиваем по предложениям, по совам, по символам.
 	if len(chunks) == 1 {
-		// Если получили ошибку, то возвращаем сообщение с подписью и ловим ошибку от телеги bad request 400
-		// TODO подумать, что с этим сделать, верятность ошибки маленькая, почти нулевая
-		// Это означает, что в сообщении не было ниодного предложения отделенного точкой.
-		// TODO Все таки сделать обработку разделения сообщения по словам(токенам)?
-		return splitMessageBySentences(chunks[0], msgsign, limit)
+		// If the message doesn't contain any line breaks, try splitting it into sentences, words, or utf8 characters
+		var err error
+		var messages []string
+		messages, err = splitMessageOnSentences(chunks[0], msgsign, limit)
+		if len(messages) == 0 {
+			messages, err = splitMessageOnWords(chunks[0], msgsign, limit)
+			if len(messages) == 0 {
+				log.Println("splitMessageOnWords failed, trying splitTextByUtf8Chars")
+				messages, err = splitTextByUtf8Chars(chunks[0], msgsign, limit)
+			}
+		}
+		return messages, err
 	}
 
 	for _, chunk := range chunks {
@@ -116,7 +124,6 @@ func (p *Parser) splitMessage(msg string, headers map[string]string) ([]string, 
 
 		// Добавляем перенос строки т.к. ранее были обрезаны все пробелы функцией TrimSpace
 		// builder.WriteString("\n")
-
 		if utf8.RuneCountInString(builder.String())+(utf8.RuneCountInString(chunk)+2) < limit {
 			builder.WriteString(chunk)
 			builder.WriteString("\n\n")
@@ -127,18 +134,13 @@ func (p *Parser) splitMessage(msg string, headers map[string]string) ([]string, 
 			builder.WriteString(chunk)
 			builder.WriteString("\n\n")
 		}
-
-		// Добавляем двойной перенос строки в конце абзаца т.к. ранее были обрезаны все пробелы функцией TrimSpace
-		// builder.WriteString("\n\n")
 	}
 	// При завершении цикла проверяем остался ли в билдере текст,
 	// если да, то добавляем текст в срез сообщений
 	if builder.Len() > 0 {
-		builder.WriteString("\n\n")
 		msgs = append(msgs, builder.String())
 	}
 
-	// Добавляем подпись в последний блок
 	return addSignature(msgs, msgsign)
 }
 
@@ -282,41 +284,117 @@ func ModifyString(input string) string {
 // splitMessageBySentences splits a text chunk into multiple messages based on sentence boundaries.
 // Each message is limited to a specified character length, accounting for a signature length.
 // It returns a slice of message strings and an error if the generated message is empty.
-func splitMessageBySentences(chunk string, msgsign *msgsign.Sign, limit int) ([]string, error) {
-	var msgs []string
+// func splitMessageOnSentences(chunk string, msgsign *msgsign.Sign, limit int) ([]string, error) {
+// 	// sentences := strings.SplitAfter(chunk, ".")
+// 	re := regexp.MustCompile(`[.?!]\s+`)
+// 	sentences := re.Split(chunk, -1)
+// 	return splitBlocks(sentences, msgsign, " ", limit)
+// }
 
-	// sentences := strings.SplitAfter(chunk, ".")
-    re := regexp.MustCompile(`[.?!]\s+`)
-    sentences := re.Split(chunk, -1)
+func splitMessageOnSentences(chunk string, msgsign *msgsign.Sign, limit int) ([]string, error) {
+	punct := map[rune]struct{}{'.': {}, '!': {}, '?': {}, '…': {}}
+	words := strings.Fields(chunk)
 
+	var result []string
 	var builder strings.Builder
 
-	for _, sentence := range sentences {
+	for _, word := range words {
+		lastRune, _ := utf8.DecodeLastRuneInString(word)
+		builder.WriteString(word)
+		builder.WriteString(" ")
+		if _, exists := punct[lastRune]; exists {
+			result = append(result, strings.TrimSpace(builder.String()))
+			builder.Reset()
+		}
+	}
+	if builder.Len() > 0 && utf8.RuneCountInString(builder.String()) < limit {
+		result = append(result, strings.TrimSpace(builder.String()))
+	}
+	if len(result) > 0 {
+		return splitBlocks(result, msgsign, " ", limit)
+	}
+	return result, nil
+}
 
-		sentence = strings.TrimSpace(sentence)
-		if sentence == "" {
+// splitMessageOnWords splits a text chunk into multiple messages based on word boundaries.
+// Each message is limited to a specified character length, accounting for a signature length.
+// It returns a slice of message strings and an error if the generated message is empty.
+func splitMessageOnWords(chunk string, msgsign *msgsign.Sign, limit int) ([]string, error) {
+	words := strings.Fields(chunk)
+	// Здесь магическое число 40 слов. Если теста много и пробелов мало,
+	// то это возможно и не слова, надо пропустить и делить по символам
+	if len(words) > 40 {
+		return splitBlocks(words, msgsign, " ", limit)
+	}
+	return nil, nil
+}
+
+func splitTextByUtf8Chars(text string, msgsign *msgsign.Sign, limit int) ([]string, error) {
+	var parts []string
+	for len(text) > 0 {
+		if utf8.RuneCountInString(text) <= limit {
+			parts = append(parts, text)
+			break
+		} else {
+			runeCount := 0
+			lastSplitIndex := -1
+			for i, r := range []rune(text) {
+				if runeCount == limit {
+					parts = append(parts, string([]rune(text[:i])))
+					text = string([]rune(text[i:]))
+					break
+				} else {
+					lastSplitIndex = i + utf8.RuneLen(r)
+					runeCount++
+				}
+			}
+			if lastSplitIndex == -1 {
+				// this means we have a single character that is longer than limit (4096) utf8 characters, so just add it as is
+				parts = append(parts, text)
+				break
+			} else if len(text) <= lastSplitIndex {
+				// This means we've reached the end of the string and didn't find enough runes to make another split
+				parts = append(parts, text)
+				break
+			}
+		}
+	}
+	return addSignature(parts, msgsign)
+}
+
+// splitBlocks divides a list of text blocks into smaller message chunks,
+// each within a specified character limit, including the length of a separator.
+// It ensures that a signature is appended to the last message.
+// The function returns a slice of message strings and an error if the process fails.
+func splitBlocks(blocks []string, signature *msgsign.Sign, separator string, limit int) ([]string, error) {
+	var messages []string
+	var builder strings.Builder
+
+	separatorLength := utf8.RuneCountInString(separator)
+
+	for _, block := range blocks {
+		block = strings.TrimSpace(block)
+		if block == "" {
 			continue
 		}
 
-		if (utf8.RuneCountInString(builder.String()) + utf8.RuneCountInString(sentence)) < limit {
-			builder.WriteString(sentence)
-			builder.WriteString(" ")
+		blockLength := utf8.RuneCountInString(block)
+		if utf8.RuneCountInString(builder.String())+(blockLength+separatorLength) < limit {
+			builder.WriteString(block)
+			builder.WriteString(separator)
 		} else {
-			msgs = append(msgs, strings.TrimSpace(builder.String()))
+			messages = append(messages, builder.String())
 			builder.Reset()
-			builder.WriteString(sentence)
-			builder.WriteString(" ")
+			builder.WriteString(block)
+			builder.WriteString(separator)
 		}
 	}
 
-	// При завершении цикла проверяем остался ли в билдере текст,
-	// если да, то добавляем текст в срез сообщений
 	if builder.Len() > 0 {
-		msgs = append(msgs, builder.String())
+		messages = append(messages, builder.String())
 	}
 
-	// Добавляем подпись в последний блок
-	return addSignature(msgs, msgsign)
+	return addSignature(messages, signature)
 }
 
 // addSignature adds the signature to the last message in the given slice of strings.
