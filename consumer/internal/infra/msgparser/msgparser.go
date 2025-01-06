@@ -19,6 +19,22 @@ type Parser struct {
 	quoteMaxWords int
 }
 
+// A ChunkType is the type of a Chunk.
+type ChunkType uint32
+
+const (
+	ErrorChunk ChunkType = iota
+	Text
+	Inline
+	Blockquote
+	LineBreak
+)
+
+type Chunk struct {
+	Text string
+	Type ChunkType
+}
+
 func New() *Parser {
 	msgMaxChars, err := strconv.Atoi(os.Getenv("MSG_MAX_CHARS"))
 	if err != nil || msgMaxChars == 0 {
@@ -47,25 +63,28 @@ func (p *Parser) Parse(msg string, headers map[string]string) ([]string, error) 
 	var builder strings.Builder
 	var f func(*html.Node)
 
-	var nodes []string
+	var nodes []Chunk
 
 	f = func(n *html.Node) {
 		if n.Type == html.TextNode {
-			nodes = append(nodes, html.EscapeString(n.Data))
+			nodes = append(nodes, Chunk{Text: html.EscapeString(n.Data), Type: Text})
 		}
 		if n.Type == html.TextNode && n.Data == "br" {
-			nodes = append(nodes, fmt.Sprintf("\n%s", ""))
+			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			return
 		}
 		if n.Type == html.ElementNode && n.Data == "blockquote" {
-			nodes = append(nodes, p.processBlockquote(n))
-			nodes = append(nodes, fmt.Sprintf("\n%s", ""))
+			nodes = append(nodes, Chunk{Text: p.processBlockquote(n), Type: Blockquote})
+			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			return
 		}
 		if n.Type == html.ElementNode && nodeHasRequiredCssClass("link", n) {
 			link := getInnerText(n)
 			link = tgLinkClipper(link)
-			nodes = append(nodes, fmt.Sprintf("%v", link))
+			nodes = append(nodes, Chunk{Text: link, Type: Inline})
+			if containsLineBreak(n) {
+				nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
+			}
 			return
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -207,6 +226,15 @@ func (p *Parser) processBlockquote(node *html.Node) string {
 	}
 
 	return strings.TrimSpace(builder.String())
+}
+
+func containsLineBreak(node *html.Node) bool {
+	for el := node.FirstChild; el != nil; el = el.NextSibling {
+		if el.Data == "br" {
+			return true
+		}
+	}
+	return false
 }
 
 // tgLinkClipper вырезает из url на телеграм канал схему и подставляет нижнее подчеркивание перед адресом
@@ -435,11 +463,13 @@ func addSignature(messages []string, signature *msgsign.Sign) ([]string, error) 
 // formatText форматирует заданный фрагмент строк в одну строку, разделенную символами новой строки.
 // Обрезает каждый узел и удаляет все повторяющиеся символы новой строки.
 // Используется для форматирования текста сообщения перед его отправкой.
-func formatText(nodes []string, builder *strings.Builder) {
+func formatText(nodes []Chunk, builder *strings.Builder) {
 	builder.Reset()
 	flag := 0
-	for _, node := range nodes {
-		if strings.TrimSpace(node) == "" {
+	for n, node := range nodes {
+		// Обрабатываем узлы переноса строки
+		if node.Type == LineBreak {
+			// Если предыдущий узел не Inline, добавляем пробел
 			if flag > 0 {
 				continue
 			}
@@ -447,8 +477,28 @@ func formatText(nodes []string, builder *strings.Builder) {
 			flag++
 			continue
 		}
-		builder.WriteString(strings.TrimSpace(node))
-		builder.WriteString("\n")
-		flag = 0
+		// Обрабатываем узлы текста
+		if node.Type == Text {
+			builder.WriteString(strings.TrimSpace(node.Text) + "\n")
+			flag = 0
+		}
+		// Обрабатываем узлы блок-цитаты
+		if node.Type == Blockquote {
+			builder.WriteString(strings.TrimSpace(node.Text))
+			flag = 0
+		}
+		// Обрабатываем узлы ссылки
+		if node.Type == Inline {
+			// Если предыдущий узел не Inline, добавляем пробел перед ссылкой
+			if n-1 > -1 && nodes[n-1].Type != Inline {
+				builder.WriteString(" ")
+			}
+			builder.WriteString(node.Text)
+			// Если следующий узел не Inline, добавляем пробел после ссылки
+			if len(nodes) > n+1 && nodes[n+1].Type != Inline {
+				builder.WriteString(" ")
+			}
+			// flag = 0
+		}
 	}
 }
