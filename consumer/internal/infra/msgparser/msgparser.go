@@ -47,24 +47,25 @@ func (p *Parser) Parse(msg string, headers map[string]string) ([]string, error) 
 	var builder strings.Builder
 	var f func(*html.Node)
 
-	// text := builder.String()
+	var nodes []string
 
 	f = func(n *html.Node) {
 		if n.Type == html.TextNode {
-			builder.WriteString(html.EscapeString(n.Data))
+			nodes = append(nodes, html.EscapeString(n.Data))
 		}
 		if n.Type == html.TextNode && n.Data == "br" {
-			builder.WriteString(fmt.Sprintf("\n%s", ""))
+			nodes = append(nodes, fmt.Sprintf("\n%s", ""))
 			return
 		}
 		if n.Type == html.ElementNode && n.Data == "blockquote" {
-			builder.WriteString(fmt.Sprintf("\n%s\n", p.processBlockquote(n)))
+			nodes = append(nodes, p.processBlockquote(n))
+			nodes = append(nodes, fmt.Sprintf("\n%s", ""))
 			return
 		}
 		if n.Type == html.ElementNode && nodeHasRequiredCssClass("link", n) {
 			link := getInnerText(n)
 			link = tgLinkClipper(link)
-			builder.WriteString(fmt.Sprintf("%v", link))
+			nodes = append(nodes, fmt.Sprintf("%v", link))
 			return
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -72,6 +73,9 @@ func (p *Parser) Parse(msg string, headers map[string]string) ([]string, error) 
 		}
 	}
 	f(n)
+
+	// Форматируем текст, удаляем все повторяющиеся символы новой строки
+	formatText(nodes, &builder)
 
 	messages, err := p.splitMessage(builder.String(), headers)
 
@@ -183,9 +187,23 @@ func (p *Parser) processBlockquote(node *html.Node) string {
 	// обрабатываем этот фрагмент функцией TruncateText и добавляем его в билдер
 	chunks := strings.SplitAfter(text, "\n")
 
+	// Форматирует заданный фрагмент строк цитаты в одну строку, разделенную символами новой строки.
+	// Обрезает каждый узел и удаляет все повторяющиеся символы новой строки.
+	// Используется для форматирования текста цитаты сообщения перед его отправкой.
 	var builder strings.Builder
+	flag := 0
 	for _, chunk := range chunks {
-		builder.WriteString(fmt.Sprintf("<i>%v</i>\n", strings.TrimSpace(chunk)))
+		if strings.TrimSpace(chunk) == "" {
+			if flag > 0 {
+				continue
+			}
+			builder.WriteString("\n")
+			flag++
+			continue
+		}
+		builder.WriteString(fmt.Sprintf("<i>%v</i>", strings.TrimSpace(chunk)))
+		builder.WriteString("\n")
+		flag = 0
 	}
 
 	return strings.TrimSpace(builder.String())
@@ -284,13 +302,13 @@ func ModifyString(input string) string {
 // splitMessageBySentences splits a text chunk into multiple messages based on sentence boundaries.
 // Each message is limited to a specified character length, accounting for a signature length.
 // It returns a slice of message strings and an error if the generated message is empty.
-// func splitMessageOnSentences(chunk string, msgsign *msgsign.Sign, limit int) ([]string, error) {
-// 	// sentences := strings.SplitAfter(chunk, ".")
-// 	re := regexp.MustCompile(`[.?!]\s+`)
-// 	sentences := re.Split(chunk, -1)
-// 	return splitBlocks(sentences, msgsign, " ", limit)
-// }
-
+//
+//	func splitMessageOnSentences(chunk string, msgsign *msgsign.Sign, limit int) ([]string, error) {
+//		// sentences := strings.SplitAfter(chunk, ".")
+//		re := regexp.MustCompile(`[.?!]\s+`)
+//		sentences := re.Split(chunk, -1)
+//		return splitBlocks(sentences, msgsign, " ", limit)
+//	}
 func splitMessageOnSentences(chunk string, msgsign *msgsign.Sign, limit int) ([]string, error) {
 	punct := map[rune]struct{}{'.': {}, '!': {}, '?': {}, '…': {}}
 	words := strings.Fields(chunk)
@@ -412,4 +430,25 @@ func addSignature(messages []string, signature *msgsign.Sign) ([]string, error) 
 	lastMessage = strings.TrimSpace(lastMessage) + signature.Value
 	messages[len(messages)-1] = lastMessage
 	return messages, nil
+}
+
+// formatText форматирует заданный фрагмент строк в одну строку, разделенную символами новой строки.
+// Обрезает каждый узел и удаляет все повторяющиеся символы новой строки.
+// Используется для форматирования текста сообщения перед его отправкой.
+func formatText(nodes []string, builder *strings.Builder) {
+	builder.Reset()
+	flag := 0
+	for _, node := range nodes {
+		if strings.TrimSpace(node) == "" {
+			if flag > 0 {
+				continue
+			}
+			builder.WriteString("\n")
+			flag++
+			continue
+		}
+		builder.WriteString(strings.TrimSpace(node))
+		builder.WriteString("\n")
+		flag = 0
+	}
 }
