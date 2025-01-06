@@ -479,7 +479,11 @@ func formatText(nodes []Chunk, builder *strings.Builder) {
 		}
 		// Обрабатываем узлы текста
 		if node.Type == Text {
-			builder.WriteString(strings.TrimSpace(node.Text) + "\n")
+			builder.WriteString(strings.TrimSpace(node.Text))
+			// Если следующий узел не Inline ссылка, добавляем перенос строки
+			if len(nodes) > n+1 && nodes[n+1].Type != Inline {
+				builder.WriteString("\n")
+			}
 			flag = 0
 		}
 		// Обрабатываем узлы блок-цитаты
