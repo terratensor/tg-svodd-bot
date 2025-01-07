@@ -45,7 +45,6 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 		token)
 	chatID := os.Getenv("TG_CHAT_ID")
 
-	link := headers["comment_link"]
 	// Парсим ID комментария
 	commentID, err := strconv.Atoi(headers["comment_id"])
 	if err != nil {
@@ -53,11 +52,7 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 		commentID = 0
 	}
 
-	for n, text := range messages {
-
-		if len(messages) == n+1 {
-			text = fmt.Sprintf("%v\n\n★ <a href=\"%v\">Источник</a>", text, link)
-		}
+	for _, text := range messages {
 
 		msg := &message.Message{
 			ChatID:    chatID,
