@@ -21,7 +21,7 @@ type Request struct {
 func Handler(ctx context.Context, ch chan Request, wg *sync.WaitGroup, tgmessages *tgmessage.TgMessages) {
 	defer wg.Done()
 
-	parser := msgparser.New()
+	parser := msgparser.New(tgmessages)
 
 	for {
 		select {
@@ -34,7 +34,7 @@ func Handler(ctx context.Context, ch chan Request, wg *sync.WaitGroup, tgmessage
 			// Обрабатываем комментарий, заменяем, удаляем не поддерживаемые теги,
 			// форматируем и разбиваю на блоки не превышающие 4096 символов,
 			// для отправки в телеграм
-			messages, err := parser.Parse(r.Message, r.Headers)
+			messages, err := parser.Parse(ctx, r.Message, r.Headers)
 			if err != nil {
 				sentry.CaptureMessage(fmt.Sprint(err))
 				log.Printf("error: %v Text: %s", err, r.Message)
