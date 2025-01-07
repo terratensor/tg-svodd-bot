@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"tg-svodd-bot/consumer/internal/infra/msgsign"
@@ -70,6 +71,8 @@ func (p *Parser) Parse(msg string, headers map[string]string) ([]string, error) 
 			// В тексте могут содержаться переносы строк, определяем тип строки по наличию перноса
 			value := html.EscapeString(n.Data)
 			if value != "\n" {
+				// Удаляем цитаты [quote:12345] [/quote]
+				value = removeQuotes(value)
 				nodes = append(nodes, Chunk{Text: strings.TrimSpace(value), Type: Text})
 			}
 		}
@@ -196,6 +199,9 @@ func (p *Parser) processBlockquote(node *html.Node) string {
 			text += fmt.Sprintf(" %v ", link)
 		}
 	}
+
+	// Удаляем цитаты [quote:12345] [/quote]
+	text = removeQuotes(text)
 
 	// return fmt.Sprintf("<i>%v</i>", strings.TrimSpace(html.EscapeString(text)))
 
@@ -520,4 +526,21 @@ func formatText(nodes []Chunk, builder *strings.Builder) {
 			flag = 0
 		}
 	}
+}
+
+// removeQuotes удаляет цитаты из текста.
+func removeQuotes(text string) string {
+	// Регулярное выражение для поиска [quote:] или [quote: с любыми цифрами
+	quotePattern := regexp.MustCompile(`\[quote:[0-9]+\]?`)
+	// Удаляем все вхождения конструкции [quote:] или [quote:
+	text = quotePattern.ReplaceAllString(text, "")
+	// Регулярное выражение для поиска [/quote]
+	closeQuotePattern := regexp.MustCompile(`\[/quote\]`)
+	// Удаляем все вхождения конструкции [/quote]
+	text = closeQuotePattern.ReplaceAllString(text, "")
+	// Регулярное выражение для поиска /quote] без открывающей скобки
+	bareQuotePattern := regexp.MustCompile(`/quote\]`)
+	// Удаляем все вхождения конструкции /quote]
+	text = bareQuotePattern.ReplaceAllString(text, "")
+	return text
 }
