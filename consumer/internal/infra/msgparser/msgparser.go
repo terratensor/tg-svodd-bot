@@ -477,7 +477,7 @@ func formatText(nodes []Chunk, builder *strings.Builder) {
 	builder.Reset()
 	flag := 0
 	for n, node := range nodes {
-		log.Printf("node: %+v\n", node)
+		// log.Printf("node: %+v\n", node)
 		// Обрабатываем узлы переноса строки
 		if node.Type == LineBreak {
 			// Если 2 предыдущих узла не Inline, добавляем перенос строки
