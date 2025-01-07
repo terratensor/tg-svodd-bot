@@ -1,6 +1,7 @@
 package msgparser
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"tg-svodd-bot/consumer/internal/infra/msgsign"
+	"tg-svodd-bot/consumer/internal/repos/tgmessage"
 	"unicode/utf8"
 
 	"golang.org/x/net/html"
@@ -18,6 +20,7 @@ type Parser struct {
 	msgMaxChars   int
 	quoteMaxChars int
 	quoteMaxWords int
+	tgmessages    *tgmessage.TgMessages
 }
 
 // A ChunkType is the type of a Chunk.
@@ -36,7 +39,7 @@ type Chunk struct {
 	Type ChunkType
 }
 
-func New() *Parser {
+func New(tgmessages *tgmessage.TgMessages) *Parser {
 	msgMaxChars, err := strconv.Atoi(os.Getenv("MSG_MAX_CHARS"))
 	if err != nil || msgMaxChars == 0 {
 		msgMaxChars = 4096
@@ -53,12 +56,13 @@ func New() *Parser {
 		msgMaxChars:   msgMaxChars,
 		quoteMaxChars: quoteMaxChars,
 		quoteMaxWords: quoteMaxWords,
+		tgmessages:    tgmessages,
 	}
 }
 
 // Parse обрабатывает текст сообщения для отправки в телеграм.
 // Устанавливает необходимые html теги
-func (p *Parser) Parse(msg string, headers map[string]string) ([]string, error) {
+func (p *Parser) Parse(ctx context.Context, msg string, headers map[string]string) ([]string, error) {
 	n, _ := html.Parse(strings.NewReader(msg))
 
 	var builder strings.Builder
@@ -86,7 +90,7 @@ func (p *Parser) Parse(msg string, headers map[string]string) ([]string, error) 
 		if n.Type == html.ElementNode && n.Data == "blockquote" {
 			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
-			nodes = append(nodes, Chunk{Text: p.processBlockquote(n), Type: Blockquote})
+			nodes = append(nodes, Chunk{Text: p.processBlockquote(ctx, n), Type: Blockquote})
 			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			return
@@ -180,7 +184,7 @@ func (p *Parser) splitMessage(msg string, headers map[string]string) ([]string, 
 	return addSignature(msgs, msgsign)
 }
 
-func (p *Parser) processBlockquote(node *html.Node) string {
+func (p *Parser) processBlockquote(ctx context.Context, node *html.Node) string {
 	var text string
 	newline := ""
 	for el := node.FirstChild; el != nil; el = el.NextSibling {
@@ -191,6 +195,11 @@ func (p *Parser) processBlockquote(node *html.Node) string {
 			newline = fmt.Sprintf("\n%v", "")
 		}
 		if el.Type == html.ElementNode && nodeHasRequiredCssClass("author", el) {
+			// log.Printf("username: %v", getInnerText(el))
+			err := p.tgmessages.UpdateUsername(ctx, tgmessage.TgMessageUsername{Username: getInnerText(el)})
+			if err != nil {
+				log.Println(err)
+			}
 			continue
 		}
 		if el.Type == html.ElementNode && nodeHasRequiredCssClass("link", el) {
@@ -202,7 +211,6 @@ func (p *Parser) processBlockquote(node *html.Node) string {
 
 	// Удаляем цитаты [quote:12345] [/quote]
 	text = removeQuotes(text)
-
 	// return fmt.Sprintf("<i>%v</i>", strings.TrimSpace(html.EscapeString(text)))
 
 	// Текст цитаты разбивается на блоки по разделителю \n и каждый блок оборачивается тегом <i></i>,
@@ -214,6 +222,8 @@ func (p *Parser) processBlockquote(node *html.Node) string {
 	text = strings.TrimSpace(text)
 	// Ограничиваем размеры цитируемого отрывка
 	text = p.truncateText(text)
+	// Удаляем никнеймы из цитаты
+	text = p.removeUsernames(ctx, text)
 	// Только после этого запукаем фукцию экранирования специальных символов,
 	// т.к. функция после экранирования увеличивает размер строки за счет преобразования символов: characters like "<" to become "&lt;"
 	text = html.EscapeString(text)
@@ -542,5 +552,14 @@ func removeQuotes(text string) string {
 	bareQuotePattern := regexp.MustCompile(`/quote\]`)
 	// Удаляем все вхождения конструкции /quote]
 	text = bareQuotePattern.ReplaceAllString(text, "")
+	return text
+}
+
+// removeUsernames удаляет никнеймы из текста.
+func (p *Parser) removeUsernames(ctx context.Context, text string) string {
+	text, err := p.tgmessages.CutUsernames(ctx, text)
+	if err != nil {
+		log.Println(err)
+	}
 	return text
 }
