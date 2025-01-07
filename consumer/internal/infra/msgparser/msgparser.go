@@ -474,7 +474,7 @@ func formatText(nodes []Chunk, builder *strings.Builder) {
 		log.Printf("node: %+v\n", node)
 		// Обрабатываем узлы переноса строки
 		if node.Type == LineBreak {
-			// Если предыдущий узел не Inline, добавляем пробел
+			// Если 2 предыдущих узла не Inline, добавляем перенос строки
 			if flag > 1 {
 				continue
 			}
@@ -502,13 +502,13 @@ func formatText(nodes []Chunk, builder *strings.Builder) {
 		}
 		// Обрабатываем узлы ссылки
 		if node.Type == Inline {
-			// Если предыдущий узел не Inline, добавляем пробел перед ссылкой
-			if n-1 > -1 && nodes[n-1].Type != Inline {
+			// Если предыдущий узел не LineBreak перенос строки, добавляем пробел перед ссылкой
+			if n-1 > -1 && nodes[n-1].Type != LineBreak {
 				builder.WriteString(" ")
 			}
 			builder.WriteString(node.Text)
-			// Если следующий узел не Inline, добавляем пробел после ссылки
-			if len(nodes) > n+1 && nodes[n+1].Type != Inline {
+			// Если следующий узел не LineBreak перенос строки, добавляем пробел после ссылки
+			if len(nodes) > n+1 && nodes[n+1].Type != LineBreak {
 				builder.WriteString(" ")
 			}
 			flag = 0
