@@ -187,7 +187,7 @@ func (p *Parser) processBlockquote(node *html.Node) string {
 		if el.Type == html.ElementNode && nodeHasRequiredCssClass("link", el) {
 			link := getInnerText(el)
 			link = tgLinkClipper(link)
-			text += fmt.Sprintf(" %v", link)
+			text += fmt.Sprintf(" %v ", link)
 		}
 	}
 
