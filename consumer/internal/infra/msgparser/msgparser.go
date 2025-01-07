@@ -77,8 +77,14 @@ func (p *Parser) Parse(msg string, headers map[string]string) ([]string, error) 
 			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			return
 		}
+		// Обрамляем цитату нодами переноса строк, 
+		//если далее в процессе парсинга образуются дополнительные переносы,
+		// они будут удален функцией formatText
 		if n.Type == html.ElementNode && n.Data == "blockquote" {
+			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
+			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			nodes = append(nodes, Chunk{Text: p.processBlockquote(n), Type: Blockquote})
+			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			return
 		}
