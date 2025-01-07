@@ -67,9 +67,13 @@ func (p *Parser) Parse(msg string, headers map[string]string) ([]string, error) 
 
 	f = func(n *html.Node) {
 		if n.Type == html.TextNode {
-			nodes = append(nodes, Chunk{Text: html.EscapeString(n.Data), Type: Text})
+			// В тексте могут содержаться переносы строк, определяем тип строки по наличию перноса
+			value := html.EscapeString(n.Data)
+			if value != "\n" {
+				nodes = append(nodes, Chunk{Text: strings.TrimSpace(value), Type: Text})
+			}
 		}
-		if n.Type == html.TextNode && n.Data == "br" {
+		if n.Type == html.ElementNode && n.Data == "br" {
 			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			return
 		}
@@ -467,10 +471,11 @@ func formatText(nodes []Chunk, builder *strings.Builder) {
 	builder.Reset()
 	flag := 0
 	for n, node := range nodes {
+		log.Printf("node: %+v\n", node)
 		// Обрабатываем узлы переноса строки
 		if node.Type == LineBreak {
 			// Если предыдущий узел не Inline, добавляем пробел
-			if flag > 0 {
+			if flag > 1 {
 				continue
 			}
 			builder.WriteString("\n")
@@ -479,16 +484,20 @@ func formatText(nodes []Chunk, builder *strings.Builder) {
 		}
 		// Обрабатываем узлы текста
 		if node.Type == Text {
+			if node.Text == "\n" {
+				continue
+			}
 			builder.WriteString(strings.TrimSpace(node.Text))
 			// Если следующий узел не Inline ссылка, добавляем перенос строки
-			if len(nodes) > n+1 && nodes[n+1].Type != Inline {
-				builder.WriteString("\n")
-			}
+			// if len(nodes) > n+1 && nodes[n+1].Type != Inline {
+			// 	builder.WriteString("\n")
+			// }
 			flag = 0
 		}
 		// Обрабатываем узлы блок-цитаты
 		if node.Type == Blockquote {
 			builder.WriteString(strings.TrimSpace(node.Text))
+			// builder.WriteString("\n")
 			flag = 0
 		}
 		// Обрабатываем узлы ссылки
@@ -502,7 +511,7 @@ func formatText(nodes []Chunk, builder *strings.Builder) {
 			if len(nodes) > n+1 && nodes[n+1].Type != Inline {
 				builder.WriteString(" ")
 			}
-			// flag = 0
+			flag = 0
 		}
 	}
 }
