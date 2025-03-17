@@ -15,6 +15,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/db/pgstore"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/buttonscheduler"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msghandler"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgreceiver"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/lib/secret"
@@ -67,6 +68,9 @@ func main() {
 
 	tgmessages := tgmessage.NewTgMessages(pgst)
 
+	// Создаем планировщик кнопок
+	buttonScheduler := buttonscheduler.NewButtonScheduler()
+
 	// Подготавливаем канал для обработки комментариев
 	ch := make(chan msghandler.Request, 100)
 	wg := &sync.WaitGroup{}
@@ -83,7 +87,7 @@ func main() {
 		}
 	}()
 
-	go msghandler.Handler(ctx, ch, wg, tgmessages, m)
+	go msghandler.Handler(ctx, ch, wg, tgmessages, m, buttonScheduler)
 
 	if mode == "PROD" {
 		// Flush buffered events before the program terminates.

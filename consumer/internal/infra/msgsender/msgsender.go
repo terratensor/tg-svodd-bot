@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/domain/message"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/buttonscheduler"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/metrics"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/repos/tgmessage"
 )
@@ -38,7 +40,8 @@ type Msgresponse struct {
 	Result map[string]interface{}
 }
 
-func Send(ctx context.Context, messages []string, headers map[string]string, tgmessages *tgmessage.TgMessages, m *metrics.Metrics) {
+func Send(ctx context.Context, messages []string, headers map[string]string, tgmessages *tgmessage.TgMessages,
+	m *metrics.Metrics, buttonScheduler *buttonscheduler.ButtonScheduler) {
 
 	contents, _ := os.ReadFile(os.Getenv("TG_BOT_TOKEN_FILE"))
 	token := fmt.Sprintf("%v", strings.Trim(string(contents), "\r\n"))
@@ -60,6 +63,28 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 			ChatID:    chatID,
 			Text:      text,
 			ParseMode: "HTML",
+		}
+
+		// Проверяем, нужно ли показывать кнопку
+		if buttonScheduler.ShouldShowButton() {
+
+			qurl, err := cleanQuestionURL(headers["comment_link"])
+			if err == nil {
+				button := message.InlineButton{
+					Text: "Подключайтесь к соборному интеллекту",
+					URL:  qurl,
+				}
+
+				inlineKeyboard := make([][]message.InlineButton, 1)
+				inlineKeyboard[0] = append(inlineKeyboard[0], button)
+
+				msg.ReplyMarkup = &message.ReplyMarkup{
+					InlineKeyboard: inlineKeyboard,
+				}
+			}
+
+			// Сбрасываем счетчик и задаем новый интервал после показа кнопки
+			buttonScheduler.Reset()
 		}
 
 		for i := 1; i <= 100; i++ {
@@ -134,4 +159,18 @@ func sendMessage(url string, message *message.Message) (*int32, error) {
 	}
 
 	return &messageID, nil
+}
+
+func cleanQuestionURL(rawURL string) (string, error) {
+	// Парсим URL
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("ошибка при разборе URL: %v", err)
+	}
+
+	// Удаляем фрагмент (часть после #)
+	parsedURL.Fragment = ""
+
+	// Возвращаем очищенный URL в виде строки
+	return parsedURL.String(), nil
 }
