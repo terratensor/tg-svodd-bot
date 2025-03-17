@@ -82,7 +82,7 @@ func main() {
 		}
 	}()
 
-	go msghandler.Handler(ctx, ch, wg, tgmessages)
+	go msghandler.Handler(ctx, ch, wg, tgmessages, m)
 
 	if mode == "PROD" {
 		// Flush buffered events before the program terminates.
