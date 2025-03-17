@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"tg-svodd-bot/consumer/internal/repos/tgmessage"
 
 	_ "github.com/jackc/pgx/v4/stdlib" // Postgresql driver
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/repos/tgmessage"
 
 	"time"
 )

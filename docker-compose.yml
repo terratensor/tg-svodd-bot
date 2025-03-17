@@ -16,6 +16,8 @@ services:
     restart: always
     depends_on:
       - registry
+    ports:
+      - "8080:8080"
     networks:
       - rmq-net
       - tg-bot-net

@@ -10,11 +10,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"tg-svodd-bot/consumer/internal/domain/message"
-	"tg-svodd-bot/consumer/internal/repos/tgmessage"
+
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/domain/message"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/metrics"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/repos/tgmessage"
 )
 
 // HTTPError represents an HTTP error returned by a server.
@@ -36,7 +38,7 @@ type Msgresponse struct {
 	Result map[string]interface{}
 }
 
-func Send(ctx context.Context, messages []string, headers map[string]string, tgmessages *tgmessage.TgMessages) {
+func Send(ctx context.Context, messages []string, headers map[string]string, tgmessages *tgmessage.TgMessages, m *metrics.Metrics) {
 
 	contents, _ := os.ReadFile(os.Getenv("TG_BOT_TOKEN_FILE"))
 	token := fmt.Sprintf("%v", strings.Trim(string(contents), "\r\n"))
@@ -70,6 +72,10 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 				time.Sleep(time.Second * 5)
 				continue
 			}
+
+			// Фиксируем метрику при отправке сообщения
+			m.MessagesSent.WithLabelValues().Inc()
+
 			// Формируем сообщение в БД
 			tgMessage := tgmessage.TgMessage{
 				CommentID: commentID,

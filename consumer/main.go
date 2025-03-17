@@ -4,18 +4,22 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"sync"
-	"tg-svodd-bot/consumer/internal/db/pgstore"
-	"tg-svodd-bot/consumer/internal/infra/msghandler"
-	"tg-svodd-bot/consumer/internal/infra/msgreceiver"
-	"tg-svodd-bot/consumer/internal/lib/secret"
-	"tg-svodd-bot/consumer/internal/repos/tgmessage"
+
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/db/pgstore"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msghandler"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgreceiver"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/lib/secret"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/metrics"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/repos/tgmessage"
 
 	_ "gocloud.dev/pubsub/rabbitpubsub"
 )
@@ -46,6 +50,13 @@ func main() {
 		}
 	}
 
+	// Создаем метрики
+	m := metrics.NewMetrics()
+	m.Register()
+
+	// Запускаем сервер для метрик
+	startMetricsServer()
+
 	// Подготавливаем подключение к БД
 	dsn := newDBConnectionString()
 	pgst, err := pgstore.NewMessages(dsn)
@@ -72,7 +83,7 @@ func main() {
 		}
 	}()
 
-	go msghandler.Handler(ctx, ch, wg, tgmessages)
+	go msghandler.Handler(ctx, ch, wg, tgmessages, m)
 
 	if mode == "PROD" {
 		// Flush buffered events before the program terminates.
@@ -104,4 +115,15 @@ func initializeTimezone() {
 	now := time.Now()
 	log.Printf("Local timezone: %s. Service started at %s", time.Local.String(),
 		now.Format("2006-01-02T15:04:05.000 MST"))
+}
+
+// startMetricsServer запускает HTTP-сервер для экспорта метрик
+func startMetricsServer() {
+	http.Handle("/metrics", promhttp.Handler())
+	go func() {
+		log.Printf("Starting metrics server on :8080")
+		if err := http.ListenAndServe(":8080", nil); err != nil {
+			log.Fatalf("Failed to start metrics server: %v", err)
+		}
+	}()
 }
