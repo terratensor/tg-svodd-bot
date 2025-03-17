@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/buttonscheduler"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgparser"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgsender"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/metrics"
@@ -21,7 +22,10 @@ type Request struct {
 	Headers map[string]string
 }
 
-func Handler(ctx context.Context, ch chan Request, wg *sync.WaitGroup, tgmessages *tgmessage.TgMessages, m *metrics.Metrics) {
+func Handler(
+	ctx context.Context, ch chan Request, wg *sync.WaitGroup, tgmessages *tgmessage.TgMessages,
+	m *metrics.Metrics, buttonScheduler *buttonscheduler.ButtonScheduler) {
+
 	defer wg.Done()
 
 	parser := msgparser.New(tgmessages)
@@ -68,7 +72,7 @@ func Handler(ctx context.Context, ch chan Request, wg *sync.WaitGroup, tgmessage
 			}
 
 			// Отправляем подготовленные сообщения в телеграм
-			msgsender.Send(ctx, messages, r.Headers, tgmessages, m)
+			msgsender.Send(ctx, messages, r.Headers, tgmessages, m, buttonScheduler)
 		}
 	}
 }

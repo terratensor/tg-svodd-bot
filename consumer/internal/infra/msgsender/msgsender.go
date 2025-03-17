@@ -6,18 +6,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 
 	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/domain/message"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/buttonscheduler"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/metrics"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/repos/tgmessage"
 )
@@ -41,40 +40,8 @@ type Msgresponse struct {
 	Result map[string]interface{}
 }
 
-var (
-	counterMutex sync.Mutex // Мьютекс для безопасного доступа к счетчику
-	messageCount int        // Счетчик сообщений без кнопки
-	nextButtonAt int        // Номер сообщения, на котором будет показана кнопка
-	rng          *rand.Rand // Локальный генератор случайных чисел
-)
-
-func init() {
-	// Инициализация локального генератора случайных чисел
-	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
-	resetButtonInterval() // Устанавливаем начальное значение для nextButtonAt
-}
-
-// resetButtonInterval генерирует случайное число от 3 до 10 и устанавливает nextButtonAt
-func resetButtonInterval() {
-	counterMutex.Lock()
-	defer counterMutex.Unlock()
-	nextButtonAt = rng.Intn(8) + 3 // Случайное число от 3 до 10
-	messageCount = 0               // Сбрасываем счетчик сообщений
-	log.Printf("Следующая кнопка будет показана через %d сообщений", nextButtonAt)
-}
-
-// shouldShowButton проверяет, нужно ли показывать кнопку на текущем сообщении
-func shouldShowButton() bool {
-	counterMutex.Lock()
-	defer counterMutex.Unlock()
-	messageCount++
-	if messageCount >= nextButtonAt {
-		return true
-	}
-	return false
-}
-
-func Send(ctx context.Context, messages []string, headers map[string]string, tgmessages *tgmessage.TgMessages, m *metrics.Metrics) {
+func Send(ctx context.Context, messages []string, headers map[string]string, tgmessages *tgmessage.TgMessages,
+	m *metrics.Metrics, buttonScheduler *buttonscheduler.ButtonScheduler) {
 
 	contents, _ := os.ReadFile(os.Getenv("TG_BOT_TOKEN_FILE"))
 	token := fmt.Sprintf("%v", strings.Trim(string(contents), "\r\n"))
@@ -99,7 +66,7 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 		}
 
 		// Проверяем, нужно ли показывать кнопку
-		if shouldShowButton() {
+		if buttonScheduler.ShouldShowButton() {
 
 			qurl, err := cleanQuestionURL(headers["comment_link"])
 			if err == nil {
@@ -117,7 +84,7 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 			}
 
 			// Сбрасываем счетчик и задаем новый интервал после показа кнопки
-			resetButtonInterval()
+			buttonScheduler.Reset()
 		}
 
 		for i := 1; i <= 100; i++ {
