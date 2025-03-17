@@ -23,4 +23,6 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 ENV TZ=Europe/Moscow
 
+EXPOSE 8081
+
 CMD ["./tg-svodd-bot"]
