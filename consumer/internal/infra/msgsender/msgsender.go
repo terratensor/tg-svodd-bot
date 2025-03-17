@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -60,6 +61,21 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 			ChatID:    chatID,
 			Text:      text,
 			ParseMode: "HTML",
+		}
+
+		qurl, err := cleanQuestionURL(headers["comment_link"])
+		if err == nil {
+			button := message.InlineButton{
+				Text: "Подключайтесь к соборному интеллекту",
+				URL:  qurl,
+			}
+
+			inlineKeyboard := make([][]message.InlineButton, 1)
+			inlineKeyboard[0] = append(inlineKeyboard[0], button)
+
+			msg.ReplyMarkup = &message.ReplyMarkup{
+				InlineKeyboard: inlineKeyboard,
+			}
 		}
 
 		for i := 1; i <= 100; i++ {
@@ -134,4 +150,18 @@ func sendMessage(url string, message *message.Message) (*int32, error) {
 	}
 
 	return &messageID, nil
+}
+
+func cleanQuestionURL(rawURL string) (string, error) {
+	// Парсим URL
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("ошибка при разборе URL: %v", err)
+	}
+
+	// Удаляем фрагмент (часть после #)
+	parsedURL.Fragment = ""
+
+	// Возвращаем очищенный URL в виде строки
+	return parsedURL.String(), nil
 }
