@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"strings"
 	"sync"
 	"tg-svodd-bot/consumer/internal/infra/msgparser"
 	"tg-svodd-bot/consumer/internal/infra/msgsender"
@@ -49,8 +50,16 @@ func Handler(ctx context.Context, ch chan Request, wg *sync.WaitGroup, tgmessage
 				re := regexp.MustCompile(`<i>.*?</i>`)
 				cleanedMessage := re.ReplaceAllString(message, "")
 
-				// Проверяем длину сообщения
-				if len(cleanedMessage) < 216 {
+				// Удаляем подпись, которая начинается с \n\n, содержит ★, ссылку и слово "Источник"
+				reSignature := regexp.MustCompile(`★ <a href="https://xn----8sba0bbi0cdm\.xn--p1ai/qa/question[^>]*">Источник</a>`)
+				cleanedMessage = reSignature.ReplaceAllString(cleanedMessage, "")
+
+				// Удаляем переносы строк
+				cleanedMessage = strings.Trim(cleanedMessage, "\n")
+
+				// Подсчитываем длину сообщения в рунах
+				messageRunes := []rune(cleanedMessage)
+				if len(messageRunes) <= 216 {
 					// Помечаем сообщение как заблокированное
 					m.MessagesBlocked.WithLabelValues().Inc()
 					log.Printf("Message blocked due to insufficient length: %s", message)
