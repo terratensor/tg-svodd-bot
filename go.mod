@@ -2,8 +2,6 @@ module tg-svodd-bot
 
 go 1.21
 
-toolchain go1.22.2
-
 require (
 	github.com/getsentry/sentry-go v0.23.0
 	github.com/jackc/pgx/v4 v4.18.3
