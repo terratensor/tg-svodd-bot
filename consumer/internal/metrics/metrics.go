@@ -9,6 +9,7 @@ type Metrics struct {
 	MessagesSent       *prometheus.CounterVec
 	SpamMessagesMarked *prometheus.CounterVec
 	MessagesBlocked    *prometheus.CounterVec
+	ButtonClicks       *prometheus.CounterVec
 }
 
 // NewMetrics создает и возвращает новый экземпляр Metrics
@@ -35,6 +36,13 @@ func NewMetrics() *Metrics {
 			},
 			[]string{}, // Метки, если нужны
 		),
+		ButtonClicks: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "tg_svodd_bot_button_clicks_total",
+				Help: "Total number of button clicks.",
+			},
+			[]string{}, // Метки, если нужны
+		),
 	}
 }
 
@@ -43,4 +51,5 @@ func (m *Metrics) Register() {
 	prometheus.MustRegister(m.MessagesSent)
 	prometheus.MustRegister(m.SpamMessagesMarked)
 	prometheus.MustRegister(m.MessagesBlocked)
+	prometheus.MustRegister(m.ButtonClicks)
 }

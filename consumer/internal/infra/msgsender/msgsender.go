@@ -67,12 +67,21 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 
 		// Проверяем, нужно ли показывать кнопку
 		if buttonScheduler.ShouldShowButton() {
-
 			qurl, err := cleanQuestionURL(headers["comment_link"])
 			if err == nil {
+				// Формируем данные для callback_data
+				callbackData := map[string]string{
+					"url": qurl,
+				}
+				callbackDataJSON, err := json.Marshal(callbackData)
+				if err != nil {
+					log.Printf("Failed to marshal callback data: %v", err)
+					continue
+				}
+
 				button := message.InlineButton{
-					Text: "Подключайтесь к соборному интеллекту",
-					URL:  qurl,
+					Text:         "Подключайтесь к соборному интеллекту",
+					CallbackData: string(callbackDataJSON), // Передаем URL в callback_data
 				}
 
 				inlineKeyboard := make([][]message.InlineButton, 1)
