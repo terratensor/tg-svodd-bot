@@ -6,9 +6,9 @@ import (
 	"log"
 	"os"
 	"sync"
-	"tg-svodd-bot/consumer/internal/infra/msghandler"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msghandler"
 
 	"gocloud.dev/pubsub"
 )

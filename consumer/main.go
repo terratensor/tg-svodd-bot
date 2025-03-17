@@ -9,16 +9,17 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
-	"tg-svodd-bot/consumer/internal/db/pgstore"
-	"tg-svodd-bot/consumer/internal/infra/msghandler"
-	"tg-svodd-bot/consumer/internal/infra/msgreceiver"
-	"tg-svodd-bot/consumer/internal/lib/secret"
-	"tg-svodd-bot/consumer/internal/metrics"
-	"tg-svodd-bot/consumer/internal/repos/tgmessage"
+
 	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/db/pgstore"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msghandler"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgreceiver"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/lib/secret"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/metrics"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/repos/tgmessage"
 
 	_ "gocloud.dev/pubsub/rabbitpubsub"
 )

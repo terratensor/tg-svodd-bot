@@ -7,12 +7,12 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"tg-svodd-bot/consumer/internal/infra/msgparser"
-	"tg-svodd-bot/consumer/internal/infra/msgsender"
-	"tg-svodd-bot/consumer/internal/metrics"
-	"tg-svodd-bot/consumer/internal/repos/tgmessage"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgparser"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgsender"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/metrics"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/repos/tgmessage"
 )
 
 type Request struct {

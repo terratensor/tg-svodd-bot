@@ -9,11 +9,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"tg-svodd-bot/consumer/internal/infra/msgsign"
-	"tg-svodd-bot/consumer/internal/lib/linkprocessor"
-	"tg-svodd-bot/consumer/internal/repos/tgmessage"
+
 	"unicode/utf8"
 
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgsign"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/lib/linkprocessor"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/repos/tgmessage"
 	"golang.org/x/net/html"
 )
 

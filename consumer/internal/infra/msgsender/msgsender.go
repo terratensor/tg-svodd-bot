@@ -10,12 +10,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"tg-svodd-bot/consumer/internal/domain/message"
-	"tg-svodd-bot/consumer/internal/metrics"
-	"tg-svodd-bot/consumer/internal/repos/tgmessage"
+
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/domain/message"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/metrics"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/repos/tgmessage"
 )
 
 // HTTPError represents an HTTP error returned by a server.
