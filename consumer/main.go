@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/db/pgstore"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/buttonscheduler"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/callbackserver"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msghandler"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgreceiver"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/lib/secret"
@@ -54,8 +54,8 @@ func main() {
 	m := metrics.NewMetrics()
 	m.Register()
 
-	// Запускаем сервер для метрик и callback-запросов
-	startServer(m)
+	// Запускаем сервер для метрик
+	startMetricsServer()
 
 	// Подготавливаем подключение к БД
 	dsn := newDBConnectionString()
@@ -69,6 +69,10 @@ func main() {
 
 	// Создаем планировщик кнопок
 	buttonScheduler := buttonscheduler.NewButtonScheduler()
+
+	// Создаем и запускаем callback-сервер
+	callbackServer := callbackserver.New(":8081", m)
+	go callbackServer.Start()
 
 	// Подготавливаем канал для обработки комментариев
 	ch := make(chan msghandler.Request, 100)
@@ -120,69 +124,13 @@ func initializeTimezone() {
 		now.Format("2006-01-02T15:04:05.000 MST"))
 }
 
-// startServer запускает HTTP-сервер для экспорта метрик и обработки callback-запросов
-func startServer(m *metrics.Metrics) {
-	// Маршрут для метрик
+// startMetricsServer запускает HTTP-сервер для экспорта метрик
+func startMetricsServer() {
 	http.Handle("/metrics", promhttp.Handler())
-
-	// Маршрут для обработки callback-запросов
-	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		var update struct {
-			CallbackQuery struct {
-				ID   string `json:"id"`
-				From struct {
-					ID int64 `json:"id"`
-				} `json:"from"`
-				Message struct {
-					MessageID int `json:"message_id"`
-				} `json:"message"`
-				Data string `json:"data"` // Данные из callback_data
-			} `json:"callback_query"`
-		}
-
-		if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-			log.Printf("Failed to decode callback query: %v", err)
-			http.Error(w, "Bad Request", http.StatusBadRequest)
-			return
-		}
-
-		// Извлекаем URL из callback_data
-		var callbackData map[string]string
-		if err := json.Unmarshal([]byte(update.CallbackQuery.Data), &callbackData); err != nil {
-			log.Printf("Failed to unmarshal callback data: %v", err)
-			http.Error(w, "Bad Request", http.StatusBadRequest)
-			return
-		}
-
-		url, ok := callbackData["url"]
-		if !ok {
-			log.Printf("URL not found in callback data")
-			http.Error(w, "Bad Request", http.StatusBadRequest)
-			return
-		}
-
-		// Увеличиваем счетчик нажатий на кнопку
-		m.ButtonClicks.WithLabelValues().Inc()
-
-		// Отправляем ответ на callback-запрос
-		response := map[string]interface{}{
-			"method":            "answerCallbackQuery",
-			"callback_query_id": update.CallbackQuery.ID,
-			"url":               url, // Используем URL из callback_data
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			log.Printf("Failed to encode response: %v", err)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		}
-	})
-
-	// Запускаем сервер
 	go func() {
-		log.Printf("Starting server on :8080")
+		log.Printf("Starting metrics server on :8080")
 		if err := http.ListenAndServe(":8080", nil); err != nil {
-			log.Fatalf("Failed to start server: %v", err)
+			log.Fatalf("Failed to start metrics server: %v", err)
 		}
 	}()
 }

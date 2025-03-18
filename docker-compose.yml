@@ -22,6 +22,7 @@ services:
       - rmq-net
       - tg-bot-net
       - svodd-network
+      - traefik-public
     environment:
       APP_ENV: dev
       RABBIT_SERVER_URL: amqp://rmq
@@ -45,6 +46,12 @@ services:
     deploy:
       restart_policy:
         condition: on-failure
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.http.routers.tg-svodd-bot.rule=Host(`tgbot.localhost`)
+      - traefik.http.routers.tg-svodd-bot.entryPoints=http
+      - traefik.http.services.tg-svodd-bot.loadBalancer.server.port=8081
 
 secrets:
   tg_bot_token:
@@ -60,4 +67,7 @@ networks:
   tg-bot-net:
   svodd-network:
     name: svodd-network
+    external: true
+  traefik-public:
+    name: traefik-public
     external: true
