@@ -70,9 +70,9 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 			qurl, err := cleanQuestionURL(headers["comment_link"])
 			if err == nil {
 				button := message.InlineButton{
-					Text: "Подключайтесь к соборному интеллекту",
-					// CallbackData: qurl, // Передаем URL в callback_data
-					URL: qurl,
+					Text:         "Подключайтесь к соборному интеллекту",
+					CallbackData: qurl, // Передаем URL в callback_data
+					URL:          qurl,
 				}
 
 				inlineKeyboard := make([][]message.InlineButton, 1)

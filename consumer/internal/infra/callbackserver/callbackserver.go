@@ -67,9 +67,12 @@ func (cs *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Увеличиваем счетчик нажатий на кнопку
-	cs.m.ButtonClicks.WithLabelValues().Inc()
 	log.Printf("🚩🚩🚩 Button clicked by user %d", update.CallbackQuery.From.ID)
+
+	if update.CallbackQuery.From.ID != 0 {
+		// Увеличиваем счетчик нажатий на кнопку
+		cs.m.ButtonClicks.WithLabelValues().Inc()
+	}
 
 	// Извлекаем URL из callback_data
 	redirectURL := update.CallbackQuery.Data
