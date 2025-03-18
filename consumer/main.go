@@ -9,13 +9,13 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
-
 	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/db/pgstore"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/buttonscheduler"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/callbackserver"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msghandler"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgreceiver"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/lib/secret"
@@ -26,7 +26,6 @@ import (
 )
 
 func main() {
-
 	initializeTimezone()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 
@@ -70,6 +69,10 @@ func main() {
 
 	// Создаем планировщик кнопок
 	buttonScheduler := buttonscheduler.NewButtonScheduler()
+
+	// Создаем и запускаем callback-сервер
+	callbackServer := callbackserver.New(":8081", m)
+	go callbackServer.Start()
 
 	// Подготавливаем канал для обработки комментариев
 	ch := make(chan msghandler.Request, 100)

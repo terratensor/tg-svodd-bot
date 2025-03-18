@@ -12,6 +12,7 @@ type ReplyMarkup struct {
 }
 
 type InlineButton struct {
-	Text string `json:"text"`
-	URL  string `json:"url"`
+	Text         string `json:"text"`
+	URL          string `json:"url"`
+	CallbackData string `json:"callback_data"`
 }

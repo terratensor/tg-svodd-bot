@@ -11,6 +11,7 @@ services:
       - tg-bot-net
       - svodd-network
       - monitoring-internal
+      - traefik-public
     environment:
       APP_ENV: prod
       RABBIT_SERVER_URL: amqp://rmq
@@ -36,6 +37,18 @@ services:
         constraints: [ node.labels.worker == worker-1 ]
       restart_policy:
         condition: on-failure
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-public
+        - traefik.http.routers.tg-svodd-bot.rule=Host(`tgbot.svodd.ru`)
+        - traefik.http.services.tg-svodd-bot.loadBalancer.server.port=8081
+        - traefik.http.middlewares.tg-svodd-bot-redirect.redirectRegex.regex=^(https?://)tgbot.svodd.ru/(.*)$$
+        - traefik.http.middlewares.tg-svodd-bot-redirect.redirectRegex.replacement=$${1}tgbot.svodd.ru/$${2}
+        - traefik.http.middlewares.tg-svodd-bot-redirect.redirectRegex.permanent=true
+        - traefik.http.routers.tg-svodd-bot.middlewares=tg-svodd-bot-redirect,secure-headers
+        - traefik.http.routers.tg-svodd-bot.entryPoints=https
+        - traefik.http.routers.tg-svodd-bot.tls=true
+        - traefik.http.routers.tg-svodd-bot.tls.certResolver=letsEncrypt
 
 secrets:
   tg_bot_token:
@@ -54,4 +67,7 @@ networks:
     external: true
   tg-bot-net:
   monitoring-internal:
+    external: true
+  traefik-public:
+    name: traefik-public
     external: true
