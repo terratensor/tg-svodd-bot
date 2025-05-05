@@ -14,6 +14,7 @@ import (
 
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgsign"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/lib/linkprocessor"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/lib/telegramfilter"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/repos/tgmessage"
 	"golang.org/x/net/html"
 )
@@ -116,6 +117,11 @@ func (p *Parser) Parse(ctx context.Context, msg string, headers map[string]strin
 	formatText(nodes, &builder)
 
 	messages, err := p.splitMessage(builder.String(), headers)
+
+	// Фильтруем все сообщения перед возвратом
+	for i, msg := range messages {
+		messages[i] = telegramfilter.FilterMessage(msg)
+	}
 
 	return messages, err
 }
