@@ -57,7 +57,7 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 		commentID = 0
 	}
 
-	for _, text := range messages {
+	for i, text := range messages {
 
 		msg := &message.Message{
 			ChatID:    chatID,
@@ -65,8 +65,8 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 			ParseMode: "HTML",
 		}
 
-		// Проверяем, нужно ли показывать кнопку
-		if buttonScheduler.ShouldShowButton() {
+		// Проверяем, нужно ли показывать кнопку (только на последнем сообщении)
+		if buttonScheduler.ShouldShowButton() && i == len(messages)-1 {
 			qurl, err := cleanQuestionURL(headers["comment_link"])
 			if err == nil {
 				button := message.InlineButton{

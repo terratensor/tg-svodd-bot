@@ -31,7 +31,7 @@ func (bs *ButtonScheduler) resetButtonInterval() {
 	log.Printf("🚩🚩🚩 Следующая кнопка будет показана через %d сообщений", bs.nextButtonAt)
 }
 
-// ShouldShowButton проверяет, нужно ли показывать кнопку на текущем сообщении
+// ShouldShowButton проверяет, нужно ли показывать кнопку
 func (bs *ButtonScheduler) ShouldShowButton() bool {
 	bs.counterMutex.Lock()
 	defer bs.counterMutex.Unlock()
