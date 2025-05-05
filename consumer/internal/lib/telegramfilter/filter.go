@@ -12,13 +12,17 @@ var (
 
 	// Для ссылок (t.me/..., telegram.me/...)
 	tgLinkRegex = regexp.MustCompile(`((t\.me|telegram\.me)/[a-zA-Z0-9_/]+)`)
-
-	// Исключения (не фильтруем ссылки на svoddru)
-	excludedDomains = []string{"t.me/svoddru", "telegram.me/svoddru"}
-
-	// Исключения для упоминаний
-	excludedMentions = []string{"@svoddru"}
 )
+
+// excludedDomains возвращает список доменов, которые не должны фильтроваться
+func excludedDomains() []string {
+	return []string{"t.me/svoddru", "telegram.me/svoddru"}
+}
+
+// excludedMentions возвращает список упоминаний, которые не должны фильтроваться
+func excludedMentions() []string {
+	return []string{"@svoddru"}
+}
 
 // FilterMessage фильтрует текст сообщения, заменяя:
 // - Все @ на _ в Telegram-упоминаниях
@@ -37,7 +41,7 @@ func filterMentions(text string) string {
 	return tgMentionRegex.ReplaceAllStringFunc(text, func(match string) string {
 
 		// Проверяем исключения
-		for _, mention := range excludedMentions {
+		for _, mention := range excludedMentions() {
 			if strings.Contains(match, mention) {
 				return match
 			}
@@ -58,7 +62,7 @@ func filterMentions(text string) string {
 func filterLinks(text string) string {
 	return tgLinkRegex.ReplaceAllStringFunc(text, func(match string) string {
 		// Проверяем исключения
-		for _, domain := range excludedDomains {
+		for _, domain := range excludedDomains() {
 			if strings.Contains(match, domain) {
 				return match
 			}
