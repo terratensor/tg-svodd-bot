@@ -1,4 +1,4 @@
-// Package telegramfilter предоставляет функции для фильтрации Telegram-упоминаний в тексте.
+// Package telegramfilter предоставляет функции для фильтрации Telegram-упоминаний и ссылок в тексте.
 package telegramfilter
 
 import (
@@ -7,15 +7,42 @@ import (
 )
 
 var (
-	// Находим все упоминания, начинающиеся с @
+	// Для упоминаний (@...)
 	tgMentionRegex = regexp.MustCompile(`(^|\s)(@[a-zA-Z0-9_@]+)`)
+
+	// Для ссылок (t.me/..., telegram.me/...)
+	tgLinkRegex = regexp.MustCompile(`((t\.me|telegram\.me)/[a-zA-Z0-9_/]+)`)
+
+	// Исключения (не фильтруем ссылки на svoddru)
+	excludedDomains = []string{"t.me/svoddru", "telegram.me/svoddru"}
+
+	// Исключения для упоминаний
+	excludedMentions = []string{"@svoddru"}
 )
 
-// FilterMessage фильтрует текст сообщения, заменяя @ на _ во всех Telegram-упоминаниях
+// FilterMessage фильтрует текст сообщения, заменяя:
+// - Все @ на _ в Telegram-упоминаниях
+// - Добавляет _ перед Telegram-ссылками (кроме исключений)
 func FilterMessage(text string) string {
-	// Обрабатываем все совпадения с регулярным выражением
-	result := tgMentionRegex.ReplaceAllStringFunc(text, func(match string) string {
-		// Разделяем на пробел (если есть) и упоминание
+	// Сначала обрабатываем упоминания (@...)
+	text = filterMentions(text)
+
+	// Затем обрабатываем ссылки (t.me/..., telegram.me/...)
+	text = filterLinks(text)
+
+	return text
+}
+
+func filterMentions(text string) string {
+	return tgMentionRegex.ReplaceAllStringFunc(text, func(match string) string {
+
+		// Проверяем исключения
+		for _, mention := range excludedMentions {
+			if strings.Contains(match, mention) {
+				return match
+			}
+		}
+
 		parts := strings.SplitN(match, "@", 2)
 		if len(parts) < 2 {
 			return match
@@ -23,11 +50,24 @@ func FilterMessage(text string) string {
 
 		prefix := parts[0]
 		mention := "@" + parts[1]
-
-		// Заменяем все @ в упоминании на _
 		cleaned := strings.ReplaceAll(mention, "@", "_")
 		return prefix + cleaned
 	})
+}
 
-	return result
+func filterLinks(text string) string {
+	return tgLinkRegex.ReplaceAllStringFunc(text, func(match string) string {
+		// Проверяем исключения
+		for _, domain := range excludedDomains {
+			if strings.Contains(match, domain) {
+				return match
+			}
+		}
+
+		// Добавляем _ перед ссылкой
+		if strings.HasPrefix(match, " ") {
+			return " _" + match[1:]
+		}
+		return "_" + match
+	})
 }
