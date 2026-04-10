@@ -86,13 +86,19 @@ func (fm *FormattedMessage) AppendSourceLinkMarkdown(text string) string {
 }
 
 // AddSignatureEntity добавляет подпись к тексту и возвращает обновленный текст + Entity
+// AddSignatureEntity добавляет подпись к тексту и возвращает обновленный текст + Entity
 func (fm *FormattedMessage) AddSignatureEntity(text string, tgEntities *[]tg.MessageEntityClass) string {
 	if fm.Signature == nil {
 		return text
 	}
 
+	// Сначала формируем текст с подписью
 	sigText := "\n\n" + fm.Signature.Text
-	sigOffset := utf8.RuneCountInString(text) + 2
+	fullText := text + sigText
+
+	// Теперь добавляем сущность для ссылки
+	// Offset - позиция начала текста ссылки относительно полного текста
+	sigOffset := utf8.RuneCountInString(text) + 2 // +2 для "\n\n"
 
 	*tgEntities = append(*tgEntities, &tg.MessageEntityTextURL{
 		Offset: sigOffset,
@@ -100,5 +106,5 @@ func (fm *FormattedMessage) AddSignatureEntity(text string, tgEntities *[]tg.Mes
 		URL:    fm.Signature.URL,
 	})
 
-	return text + sigText
+	return fullText
 }

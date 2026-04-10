@@ -153,7 +153,7 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 
 	var textBuilder strings.Builder
 	offset := 0
-	flag := 0 // Счетчик для переносов строк (как в formatText)
+	flag := 0
 
 	// Обрабатываем цитату (чистый текст)
 	if quote != "" {
@@ -169,9 +169,8 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 		offset += utf8.RuneCountInString(quote) + 1
 	}
 
-	// Обрабатываем ноды точно так же как в formatText
+	// Обрабатываем ноды
 	for n, node := range nodes {
-		// Пропускаем Blockquote, уже обработан через quote
 		if node.Type == Blockquote {
 			continue
 		}
@@ -230,7 +229,9 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 		}
 	}
 
-	fm.Text = strings.TrimSpace(textBuilder.String())
+	// ИСПРАВЛЕНИЕ: убираем HTML-экранирование
+	rawText := strings.TrimSpace(textBuilder.String())
+	fm.Text = html.UnescapeString(rawText)
 
 	// Добавляем подпись с источником
 	if link, ok := headers["comment_link"]; ok && link != "" {
@@ -238,6 +239,7 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 			Text: "★ Источник",
 			URL:  link,
 		}
+		log.Printf("✅ Signature created: %+v", fm.Signature) // Добавьте эту строку
 	}
 
 	return fm

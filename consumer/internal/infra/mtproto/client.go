@@ -287,6 +287,16 @@ func (c *Client) SendFormattedMessage(ctx context.Context, chatID string, fm *do
 	log.Printf("🔍 [SendFormattedMessageWithButton] Final text length: %d runes", utf8.RuneCountInString(text))
 	log.Printf("🔍 [SendFormattedMessageWithButton] Full text: %s", text)
 	for i, entity := range tgEntities {
+		if textURL, ok := entity.(*tg.MessageEntityTextURL); ok {
+			if textURL.URL == "" {
+				log.Printf("⚠️ Warning: TextURL entity %d has empty URL", i)
+			}
+			if textURL.Length == 0 {
+				log.Printf("⚠️ Warning: TextURL entity %d has zero length", i)
+			}
+			log.Printf("📎 TextURL entity %d: offset=%d, length=%d, url=%s",
+				i, textURL.Offset, textURL.Length, textURL.URL)
+		}
 		switch e := entity.(type) {
 		case *tg.MessageEntityBlockquote:
 			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] BLOCKQUOTE: offset=%d, length=%d", i, e.Offset, e.Length)
@@ -381,6 +391,16 @@ func (c *Client) SendFormattedMessageWithButton(ctx context.Context, chatID stri
 	log.Printf("🔍 [SendFormattedMessageWithButton] Final text length: %d runes", utf8.RuneCountInString(text))
 	log.Printf("🔍 [SendFormattedMessageWithButton] Full text: %s", text)
 	for i, entity := range tgEntities {
+		if textURL, ok := entity.(*tg.MessageEntityTextURL); ok {
+			if textURL.URL == "" {
+				log.Printf("⚠️ Warning: TextURL entity %d has empty URL", i)
+			}
+			if textURL.Length == 0 {
+				log.Printf("⚠️ Warning: TextURL entity %d has zero length", i)
+			}
+			log.Printf("📎 TextURL entity %d: offset=%d, length=%d, url=%s",
+				i, textURL.Offset, textURL.Length, textURL.URL)
+		}
 		switch e := entity.(type) {
 		case *tg.MessageEntityBlockquote:
 			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] BLOCKQUOTE: offset=%d, length=%d", i, e.Offset, e.Length)
