@@ -26,7 +26,7 @@ var (
 	mtprotoReady      bool
 )
 
-// initMTProto инициализирует MTProto клиент если прокси включен
+// initMTProto инициализирует MTProto клиент с автоматическим восстановлением
 func initMTProto() {
 	mtprotoClientOnce.Do(func() {
 		if os.Getenv("TG_WS_PROXY_ENABLED") != "true" {
@@ -34,29 +34,55 @@ func initMTProto() {
 			return
 		}
 
-		log.Printf("🔄 Initializing MTProto client...")
-
 		mtprotoCtx, mtprotoCancel = context.WithCancel(context.Background())
 
-		client, err := mtproto.New(mtprotoCtx)
-		if err != nil {
-			log.Printf("❌ Failed to create MTProto client: %v", err)
+		// Запускаем менеджер подключения с повторными попытками
+		go mtprotoConnectionManager(mtprotoCtx)
+	})
+}
+
+// mtprotoConnectionManager управляет подключением с повторными попытками
+func mtprotoConnectionManager(ctx context.Context) {
+	retryDelay := 5 * time.Second
+	maxRetryDelay := 5 * time.Minute
+
+	for {
+		select {
+		case <-ctx.Done():
 			return
+		default:
+		}
+
+		log.Printf("🔄 Creating MTProto client...")
+		client, err := mtproto.New(ctx)
+		if err != nil {
+			log.Printf("❌ Failed to create MTProto client: %v, retrying in %v", err, retryDelay)
+			time.Sleep(retryDelay)
+			retryDelay = min(retryDelay*2, maxRetryDelay)
+			continue
 		}
 
 		mtprotoClient = client
 
-		// Запускаем подключение в горутине
-		go func() {
-			log.Printf("🔌 Connecting MTProto client...")
-			if err := mtprotoClient.Connect(mtprotoCtx); err != nil {
-				log.Printf("❌ MTProto connect failed: %v", err)
-				return
-			}
-			mtprotoReady = true
-			log.Printf("✅ MTProto client ready")
-		}()
-	})
+		log.Printf("🔌 Connecting MTProto client...")
+		if err := mtprotoClient.Connect(ctx); err != nil {
+			log.Printf("❌ MTProto connect failed: %v, retrying in %v", err, retryDelay)
+			mtprotoReady = false
+			time.Sleep(retryDelay)
+			retryDelay = min(retryDelay*2, maxRetryDelay)
+			continue
+		}
+
+		mtprotoReady = true
+		log.Printf("✅ MTProto client connected and ready")
+
+		// Сброс задержки при успешном подключении
+		retryDelay = 5 * time.Second
+
+		// Ждем пока соединение живо
+		<-ctx.Done()
+		return
+	}
 }
 
 // shutdownMTProto закрывает MTProto клиент
