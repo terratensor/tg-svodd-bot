@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -235,11 +236,20 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 
 	// Добавляем подпись с источником
 	if link, ok := headers["comment_link"]; ok && link != "" {
+		// Кодируем URL правильно
+		parsedURL, err := url.Parse(link)
+		if err == nil {
+			if parsedURL.Fragment != "" {
+				// Кодируем fragment
+				parsedURL.Fragment = url.PathEscape(parsedURL.Fragment)
+			}
+			link = parsedURL.String()
+		}
+
 		fm.Signature = &message.Signature{
 			Text: "★ Источник",
 			URL:  link,
 		}
-		log.Printf("✅ Signature created: %+v", fm.Signature) // Добавьте эту строку
 	}
 
 	return fm
