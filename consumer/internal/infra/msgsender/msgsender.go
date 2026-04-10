@@ -86,29 +86,15 @@ func mtprotoConnectionManager(ctx context.Context) {
 		mtprotoMu.Unlock()
 
 		log.Printf("✅ MTProto client connected and ready")
-
 		retryDelay = 5 * time.Second
 
-		// Мониторим здоровье клиента
-		for {
-			select {
-			case <-ctx.Done():
-				mtprotoMu.Lock()
-				mtprotoReady = false
-				mtprotoMu.Unlock()
-				return
-			default:
-				if !client.IsReady() {
-					log.Printf("⚠️ MTProto client became unhealthy, reconnecting...")
-					mtprotoMu.Lock()
-					mtprotoReady = false
-					mtprotoMu.Unlock()
-					client.Close()
-					break
-				}
-				time.Sleep(5 * time.Second)
-			}
-		}
+		// Просто ждем пока контекст не отменят
+		<-ctx.Done()
+
+		mtprotoMu.Lock()
+		mtprotoReady = false
+		mtprotoMu.Unlock()
+		return
 	}
 }
 
