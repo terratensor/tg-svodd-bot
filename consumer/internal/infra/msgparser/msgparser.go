@@ -153,39 +153,63 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 
 	var textBuilder strings.Builder
 	offset := 0
+	flag := 0 // Счетчик для переносов строк (как в formatText)
 
-	// Обрабатываем все ноды в порядке их следования
-	for _, node := range nodes {
-		switch node.Type {
-		case Blockquote:
+	// Обрабатываем цитату (чистый текст)
+	if quote != "" {
+		fm.Quote = quote
+		textBuilder.WriteString(quote)
+		textBuilder.WriteString("\n")
+
+		fm.Entities = append(fm.Entities, message.MessageEntity{
+			Type:   message.EntityBlockquote,
+			Offset: offset,
+			Length: utf8.RuneCountInString(quote),
+		})
+		offset += utf8.RuneCountInString(quote) + 1
+	}
+
+	// Обрабатываем ноды точно так же как в formatText
+	for n, node := range nodes {
+		// Пропускаем Blockquote, уже обработан через quote
+		if node.Type == Blockquote {
+			continue
+		}
+
+		if node.Type == LineBreak {
+			if flag > 1 {
+				continue
+			}
+			textBuilder.WriteString("\n")
+			offset += 1
+			flag++
+			continue
+		}
+
+		if node.Type == Text {
+			if node.Text == "\n" {
+				continue
+			}
 			cleanText := strings.TrimSpace(node.Text)
 			if cleanText == "" {
 				continue
 			}
 			textBuilder.WriteString(cleanText)
-			textBuilder.WriteString("\n\n")
+			offset += utf8.RuneCountInString(cleanText)
+			flag = 0
+		}
 
-			fm.Entities = append(fm.Entities, message.MessageEntity{
-				Type:   message.EntityBlockquote,
-				Offset: offset,
-				Length: utf8.RuneCountInString(cleanText),
-			})
-			offset += utf8.RuneCountInString(cleanText) + 2
-
-		case Text:
+		if node.Type == Inline {
 			cleanText := strings.TrimSpace(node.Text)
 			if cleanText == "" {
 				continue
 			}
-			textBuilder.WriteString(cleanText)
-			textBuilder.WriteString("\n\n") // Сохраняем абзацы!
-			offset += utf8.RuneCountInString(cleanText) + 2
-
-		case Inline:
-			cleanText := strings.TrimSpace(node.Text)
-			if cleanText == "" {
-				continue
+			// Добавляем пробел перед ссылкой если нужно (как в formatText)
+			if n-1 > -1 && nodes[n-1].Type != LineBreak {
+				textBuilder.WriteString(" ")
+				offset += 1
 			}
+
 			if node.URL != "" {
 				fm.Entities = append(fm.Entities, message.MessageEntity{
 					Type:   message.EntityTextURL,
@@ -195,18 +219,20 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 				})
 			}
 			textBuilder.WriteString(cleanText)
-			textBuilder.WriteString(" ")
-			offset += utf8.RuneCountInString(cleanText) + 1
+			offset += utf8.RuneCountInString(cleanText)
 
-		case LineBreak:
-			textBuilder.WriteString("\n")
-			offset += 1
+			// Добавляем пробел после ссылки если нужно
+			if len(nodes) > n+1 && nodes[n+1].Type != LineBreak {
+				textBuilder.WriteString(" ")
+				offset += 1
+			}
+			flag = 0
 		}
 	}
 
 	fm.Text = strings.TrimSpace(textBuilder.String())
 
-	// Добавляем подпись с источником через Entity (НЕ Markdown!)
+	// Добавляем подпись с источником
 	if link, ok := headers["comment_link"]; ok && link != "" {
 		fm.Signature = &message.Signature{
 			Text: "★ Источник",
