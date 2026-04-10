@@ -2,11 +2,9 @@ package mtproto
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -53,67 +51,25 @@ func New(ctx context.Context) (*Client, error) {
 
 		log.Printf("🔄 MTProto proxy enabled: %s", proxyAddr)
 
+		// Декодируем секрет из hex
 		secretBytes, err := hex.DecodeString(secret)
 		if err != nil {
 			return nil, fmt.Errorf("invalid secret hex: %w", err)
 		}
 
-		// Создаем кастомный dialer с MTProto обфускацией и фильтрацией IPv6
-		resolver = dcs.Plain(dcs.PlainOptions{
-			Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				log.Printf("🔌 Dial called with addr: %s", addr)
+		// Используем встроенную поддержку MTProto прокси в gotd/td
+		// dcs.MTProxy() создает правильный резолвер с обфускацией
+		mtProxy := dcs.MTProxy(proxyAddr, secretBytes, dcs.MTProxyOptions{})
+		resolver = mtProxy
 
-				// Блокируем IPv6 адреса
-				if strings.Contains(addr, "[") || strings.Contains(addr, "]:") || strings.Contains(addr, "2001:") {
-					log.Printf("❌ Blocking IPv6 address: %s", addr)
-					return nil, fmt.Errorf("IPv6 not supported")
-				}
-
-				log.Printf("✅ Connecting via proxy %s to IPv4 %s", proxyAddr, addr)
-
-				// Подключаемся к прокси
-				conn, err := net.DialTimeout("tcp", proxyAddr, 15*time.Second)
-				if err != nil {
-					return nil, fmt.Errorf("failed to connect to proxy: %w", err)
-				}
-
-				// Отправляем MTProto обфускацию
-				if err := writeMTProtoObfuscation(conn, secretBytes); err != nil {
-					conn.Close()
-					return nil, fmt.Errorf("failed to write obfuscation: %w", err)
-				}
-
-				return conn, nil
-			},
-			Rand:       rand.Reader,
-			PreferIPv6: false,  // Отключаем предпочтение IPv6
-			Network:    "tcp4", // Принудительно IPv4
-		})
+		log.Printf("✅ MTProto resolver configured")
 	} else {
 		log.Printf("📡 Direct MTProto connection")
-		resolver = dcs.Plain(dcs.PlainOptions{
-			Rand:       rand.Reader,
-			PreferIPv6: false,
-			Network:    "tcp4",
-		})
+		resolver = dcs.Plain(dcs.PlainOptions{})
 	}
-
-	// Фильтруем DC лист - только IPv4
-	dcList := dcs.Prod()
-	var ipv4Options []tg.DCOption
-	for _, opt := range dcList.Options {
-		// Проверяем что это IPv4 адрес (содержит точки и нет двоеточий)
-		if strings.Contains(opt.IPAddress, ".") && !strings.Contains(opt.IPAddress, ":") {
-			ipv4Options = append(ipv4Options, opt)
-		} else {
-			log.Printf("⚠️ Filtered out non-IPv4 DC: %s", opt.IPAddress)
-		}
-	}
-	log.Printf("📡 Using %d IPv4 DCs (filtered from %d total)", len(ipv4Options), len(dcList.Options))
 
 	client := telegram.NewClient(appID, appHash, telegram.Options{
 		Resolver: resolver,
-		DCList:   dcs.List{Options: ipv4Options, Domains: dcList.Domains},
 		DC:       2, // Основной DC для ботов
 	})
 
@@ -121,22 +77,6 @@ func New(ctx context.Context) (*Client, error) {
 		client: client,
 		token:  token,
 	}, nil
-}
-
-// writeMTProtoObfuscation отправляет обфускацию для MTProto прокси
-func writeMTProtoObfuscation(conn net.Conn, secret []byte) error {
-	// Генерируем случайные байты (64 байта)
-	randomBytes := make([]byte, 64)
-	if _, err := rand.Read(randomBytes); err != nil {
-		return err
-	}
-
-	// Отправляем обфускацию
-	if _, err := conn.Write(randomBytes); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func (c *Client) Connect(parentCtx context.Context) error {
