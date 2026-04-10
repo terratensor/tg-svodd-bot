@@ -89,17 +89,26 @@ func mtprotoConnectionManager(ctx context.Context) {
 
 		retryDelay = 5 * time.Second
 
-		<-ctx.Done()
-
-		mtprotoMu.Lock()
-		mtprotoReady = false
-		if mtprotoClient != nil {
-			mtprotoClient.Close()
-			mtprotoClient = nil
+		// Мониторим здоровье клиента
+		for {
+			select {
+			case <-ctx.Done():
+				mtprotoMu.Lock()
+				mtprotoReady = false
+				mtprotoMu.Unlock()
+				return
+			default:
+				if !client.IsReady() {
+					log.Printf("⚠️ MTProto client became unhealthy, reconnecting...")
+					mtprotoMu.Lock()
+					mtprotoReady = false
+					mtprotoMu.Unlock()
+					client.Close()
+					break
+				}
+				time.Sleep(5 * time.Second)
+			}
 		}
-		mtprotoMu.Unlock()
-
-		return
 	}
 }
 
@@ -107,6 +116,12 @@ func mtprotoConnectionManager(ctx context.Context) {
 func getMTProtoClient() (*mtproto.Client, bool) {
 	mtprotoMu.RLock()
 	defer mtprotoMu.RUnlock()
+
+	log.Printf("DEBUG: mtprotoReady=%v, client=%v", mtprotoReady, mtprotoClient != nil)
+	if mtprotoClient != nil {
+		log.Printf("DEBUG: client.IsReady()=%v", mtprotoClient.IsReady())
+	}
+
 	return mtprotoClient, mtprotoReady && mtprotoClient != nil && mtprotoClient.IsReady()
 }
 
