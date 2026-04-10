@@ -1,7 +1,6 @@
 package msgsender
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,12 +10,14 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/domain/message"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/buttonscheduler"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/proxy"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/metrics"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/repos/tgmessage"
 )
@@ -28,9 +29,6 @@ type HTTPError struct {
 }
 
 // Error returns a string representation of the HTTP error.
-//
-// No parameters.
-// Returns a string.
 func (err HTTPError) Error() string {
 	return fmt.Sprintf("failed to send successful request. Status was %s", err.Status)
 }
@@ -40,14 +38,24 @@ type Msgresponse struct {
 	Result map[string]interface{}
 }
 
+var (
+	proxyClient     *proxy.TelegramProxyClient
+	proxyClientOnce sync.Once
+)
+
+func getProxyClient() *proxy.TelegramProxyClient {
+	proxyClientOnce.Do(func() {
+		proxyClient = proxy.NewTelegramProxyClient()
+	})
+	return proxyClient
+}
+
 func Send(ctx context.Context, messages []string, headers map[string]string, tgmessages *tgmessage.TgMessages,
 	m *metrics.Metrics, buttonScheduler *buttonscheduler.ButtonScheduler) {
 
 	contents, _ := os.ReadFile(os.Getenv("TG_BOT_TOKEN_FILE"))
 	token := fmt.Sprintf("%v", strings.Trim(string(contents), "\r\n"))
 
-	tgUrl := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage",
-		token)
 	chatID := os.Getenv("TG_CHAT_ID")
 
 	// Парсим ID комментария
@@ -57,8 +65,10 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 		commentID = 0
 	}
 
-	for i, text := range messages {
+	// Получаем клиент прокси
+	proxyClient := getProxyClient()
 
+	for i, text := range messages {
 		msg := &message.Message{
 			ChatID:    chatID,
 			Text:      text,
@@ -71,7 +81,7 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 			if err == nil {
 				button := message.InlineButton{
 					Text:         "Подключайтесь к соборному интеллекту",
-					CallbackData: qurl, // Передаем URL в callback_data
+					CallbackData: qurl,
 					URL:          qurl,
 				}
 
@@ -87,9 +97,9 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 			buttonScheduler.Reset()
 		}
 
-		for i := 1; i <= 100; i++ {
-			// Делаем 100 попыток отправки, если получена ошибка, если нет, то цикл сразу завершается
-			messageID, err := sendMessage(tgUrl, msg)
+		for attempt := 1; attempt <= 100; attempt++ {
+			// Делаем 100 попыток отправки
+			messageID, err := sendMessageWithProxy(ctx, proxyClient, token, msg)
 			if err != nil {
 				cm := fmt.Sprintf("error: %v Text: %s", err, msg.Text)
 				log.Println(cm)
@@ -118,28 +128,25 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 			break
 		}
 
-		// Ожидаем 3 секунды после отправки, необходимо для соблюдения лимитов отправки сообщений ботом, 20 сообщений в минуту
+		// Ожидаем 3 секунды после отправки
 		time.Sleep(time.Second * 3)
 	}
 }
 
-// sendMessage sends a message to given URL.
-func sendMessage(url string, message *message.Message) (*int32, error) {
+// sendMessageWithProxy отправляет сообщение через прокси
+func sendMessageWithProxy(ctx context.Context, proxyClient *proxy.TelegramProxyClient, token string, message *message.Message) (*int32, error) {
 	payload, err := json.Marshal(message)
 	if err != nil {
 		return nil, err
 	}
 
-	// Отправляем запрос с установленным ограниченеием на ответ в 10 секунд.
-	client := http.Client{
-		Timeout: 10 * time.Second,
-	}
-	response, err := client.Post(url, "application/json", bytes.NewBuffer(payload))
+	// Используем прокси клиент
+	response, err := proxyClient.SendMessage(ctx, token, payload)
 	if err != nil {
 		return nil, err
 	}
-
 	defer response.Body.Close()
+
 	if response.StatusCode != http.StatusOK {
 		return nil, &HTTPError{
 			StatusCode: response.StatusCode,
@@ -152,7 +159,7 @@ func sendMessage(url string, message *message.Message) (*int32, error) {
 
 	err = json.NewDecoder(response.Body).Decode(&j)
 	if err != nil {
-		log.Printf("filed to decode response body %v", err)
+		log.Printf("failed to decode response body %v", err)
 	} else {
 		log.Printf("response body: %v", j)
 		messageID = int32(j.Result["message_id"].(float64))
