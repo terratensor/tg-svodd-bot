@@ -39,9 +39,42 @@ type FormattedMessage struct {
 	Signature *Signature      // Подпись с источником
 }
 
+// AddSourceButton добавляет кнопку-источник
 func (fm *FormattedMessage) AddSourceButton(url string) {
 	fm.Signature = &Signature{
 		Text: "★ Источник",
 		URL:  url,
 	}
+}
+
+// FormatSourceLinkHTML возвращает HTML ссылку на источник
+func (fm *FormattedMessage) FormatSourceLinkHTML() string {
+	if fm.Signature == nil {
+		return ""
+	}
+	return "\n\n<a href=\"" + fm.Signature.URL + "\">" + fm.Signature.Text + "</a>"
+}
+
+// FormatSourceLinkMarkdown возвращает Markdown ссылку на источник
+func (fm *FormattedMessage) FormatSourceLinkMarkdown() string {
+	if fm.Signature == nil {
+		return ""
+	}
+	return "\n\n[" + fm.Signature.Text + "](" + fm.Signature.URL + ")"
+}
+
+// AppendSourceLinkHTML добавляет HTML ссылку к тексту
+func (fm *FormattedMessage) AppendSourceLinkHTML(text string) string {
+	if fm.Signature == nil {
+		return text
+	}
+	return text + fm.FormatSourceLinkHTML()
+}
+
+// AppendSourceLinkMarkdown добавляет Markdown ссылку к тексту
+func (fm *FormattedMessage) AppendSourceLinkMarkdown(text string) string {
+	if fm.Signature == nil {
+		return text
+	}
+	return text + fm.FormatSourceLinkMarkdown()
 }
