@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/dcs"
@@ -52,42 +53,58 @@ func New(ctx context.Context) (*Client, error) {
 
 		log.Printf("🔄 MTProto proxy enabled: %s", proxyAddr)
 
-		// Декодируем секрет из hex
 		secretBytes, err := hex.DecodeString(secret)
 		if err != nil {
 			return nil, fmt.Errorf("invalid secret hex: %w", err)
 		}
 
-		// Создаем кастомный dialer с MTProto обфускацией
 		resolver = dcs.Plain(dcs.PlainOptions{
 			Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				log.Printf("🔌 Connecting to proxy %s for %s", proxyAddr, addr)
-
-				// Подключаемся к прокси
-				conn, err := net.Dial("tcp", proxyAddr)
-				if err != nil {
-					return nil, fmt.Errorf("failed to connect to proxy: %w", err)
+				// Игнорируем IPv6
+				if strings.Contains(addr, "[") || strings.Contains(addr, "]:") {
+					log.Printf("⚠️ Skipping IPv6: %s", addr)
+					return nil, fmt.Errorf("IPv6 not supported")
 				}
 
-				// Отправляем MTProto обфускацию
+				log.Printf("🔌 Connecting via proxy to %s", addr)
+				conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Second)
+				if err != nil {
+					return nil, err
+				}
+
 				if err := writeMTProtoObfuscation(conn, secretBytes); err != nil {
 					conn.Close()
-					return nil, fmt.Errorf("failed to write obfuscation: %w", err)
+					return nil, err
 				}
 
 				return conn, nil
 			},
-			Rand: rand.Reader,
+			Rand:       rand.Reader,
+			PreferIPv6: false,
+			Network:    "tcp4",
 		})
 	} else {
 		log.Printf("📡 Direct MTProto connection")
 		resolver = dcs.Plain(dcs.PlainOptions{
-			Rand: rand.Reader,
+			Rand:       rand.Reader,
+			PreferIPv6: false,
+			Network:    "tcp4",
 		})
 	}
 
+	// Фильтруем DC лист - только IPv4
+	dcList := dcs.Prod()
+	var ipv4Options []tg.DCOption
+	for _, opt := range dcList.Options {
+		if strings.Contains(opt.IPAddress, ".") && !strings.Contains(opt.IPAddress, ":") {
+			ipv4Options = append(ipv4Options, opt)
+		}
+	}
+	log.Printf("📡 Using %d IPv4 DCs (filtered from %d total)", len(ipv4Options), len(dcList.Options))
+
 	client := telegram.NewClient(appID, appHash, telegram.Options{
 		Resolver: resolver,
+		DCList:   dcs.List{Options: ipv4Options, Domains: dcList.Domains},
 	})
 
 	return &Client{
