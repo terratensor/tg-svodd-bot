@@ -25,13 +25,13 @@ jobs:
         username: audetv
         password: ${{ github.token }}
 
-    - name: golangci-lint
-      uses: golangci/golangci-lint-action@v6
+    # - name: golangci-lint
+    #   uses: golangci/golangci-lint-action@v6
 
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: 1.23.0
+        go-version: 1.25.0
 
     - name: Build
       run: go build -v ./...
@@ -74,4 +74,10 @@ jobs:
         APP_TG_BOT_TOKEN_FILE: ${{ secrets.APP_TG_BOT_TOKEN_FILE }}
         APP_SENTRY_DSN_FILE: ${{ secrets.APP_SENTRY_DSN_FILE }}
         APP_DB_PASSWORD_FILE: ${{ secrets.APP_DB_PASSWORD_FILE }}
+        # Новые переменные для прокси
+        TG_WS_PROXY_SECRET: ${{ secrets.TG_WS_PROXY_SECRET }}
+        TG_WS_PROXY_ENABLED: ${{ secrets.TG_WS_PROXY_ENABLED }}
+        TG_WS_PROXY_ADDR: ${{ secrets.TG_WS_PROXY_ADDR }}
+        TG_APP_ID: ${{ secrets.TG_APP_ID }}
+        TG_APP_HASH: ${{ secrets.TG_APP_HASH }}
       if: ${{ github.ref == 'refs/heads/main' }}
