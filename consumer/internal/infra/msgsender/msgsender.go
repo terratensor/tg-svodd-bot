@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -248,8 +249,13 @@ func Send(ctx context.Context, parsedResult *msgparser.ParsedResult, headers map
 func cleanQuestionURL(rawURL string) (string, error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
-		return "", fmt.Errorf("ошибка при разборе URL: %v", err)
+		return "", err
 	}
-	parsedURL.Fragment = ""
+
+	// Кодируем fragment, заменяем пробелы на %20
+	if parsedURL.Fragment != "" {
+		parsedURL.Fragment = strings.ReplaceAll(parsedURL.Fragment, " ", "%20")
+	}
+
 	return parsedURL.String(), nil
 }
