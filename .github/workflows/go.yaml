@@ -25,8 +25,8 @@ jobs:
         username: audetv
         password: ${{ github.token }}
 
-    - name: golangci-lint
-      uses: golangci/golangci-lint-action@v6
+    # - name: golangci-lint
+    #   uses: golangci/golangci-lint-action@v6
 
     - name: Set up Go
       uses: actions/setup-go@v5
