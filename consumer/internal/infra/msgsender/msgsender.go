@@ -114,7 +114,7 @@ func Send(ctx context.Context, parsedResult *msgparser.ParsedResult, headers map
 		}
 	}
 
-	defer shutdownMTProto()
+	// defer shutdownMTProto()
 
 	chatID := os.Getenv("TG_CHAT_ID")
 
