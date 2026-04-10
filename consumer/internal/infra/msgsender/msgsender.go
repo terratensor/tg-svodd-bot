@@ -119,7 +119,7 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 		var messageID int32
 		var sendErr error
 
-		for attempt := 1; attempt <= 10; attempt++ {
+		for attempt := 1; attempt <= 100; attempt++ {
 			if mtprotoClient != nil && mtprotoClient.IsReady() {
 				id, err := mtprotoClient.SendMessage(ctx, chatID, msgText)
 				if err != nil {
