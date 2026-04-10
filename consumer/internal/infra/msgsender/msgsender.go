@@ -19,38 +19,30 @@ import (
 )
 
 var (
-	mtprotoClient     *mtproto.Client
-	mtprotoClientOnce sync.Once
-	mtprotoCtx        context.Context
-	mtprotoCancel     context.CancelFunc
-	mtprotoReady      bool
-	mtprotoMu         sync.RWMutex
+	mtprotoClient *mtproto.Client
+	mtprotoMu     sync.RWMutex
 )
 
-// InitMTProto глобальная инициализация (вызывается из main)
+// InitMTProto запускает менеджер подключения (вызывается из main)
 func InitMTProto() {
 	if os.Getenv("TG_WS_PROXY_ENABLED") != "true" {
 		log.Printf("📡 MTProto disabled")
 		return
 	}
-
-	mtprotoClientOnce.Do(func() {
-		mtprotoCtx, mtprotoCancel = context.WithCancel(context.Background())
-		go mtprotoConnectionManager(mtprotoCtx)
-	})
+	go mtprotoConnectionManager(context.Background())
 }
 
-// ShutdownMTProto закрывает MTProto клиент (вызывается при завершении)
+// ShutdownMTProto закрывает клиент при завершении
 func ShutdownMTProto() {
-	if mtprotoCancel != nil {
-		mtprotoCancel()
-	}
+	mtprotoMu.Lock()
+	defer mtprotoMu.Unlock()
 	if mtprotoClient != nil {
 		mtprotoClient.Close()
+		mtprotoClient = nil
 	}
 }
 
-// mtprotoConnectionManager управляет подключением с повторными попытками
+// mtprotoConnectionManager поддерживает постоянно живое соединение
 func mtprotoConnectionManager(ctx context.Context) {
 	retryDelay := 5 * time.Second
 	maxRetryDelay := 5 * time.Minute
@@ -80,35 +72,39 @@ func mtprotoConnectionManager(ctx context.Context) {
 			continue
 		}
 
+		// Устанавливаем нового клиента
 		mtprotoMu.Lock()
 		mtprotoClient = client
-		mtprotoReady = true
 		mtprotoMu.Unlock()
 
 		log.Printf("✅ MTProto client connected and ready")
 		retryDelay = 5 * time.Second
 
-		// Просто ждем пока контекст не отменят
-		<-ctx.Done()
-
-		mtprotoMu.Lock()
-		mtprotoReady = false
-		mtprotoMu.Unlock()
-		return
+		// Мониторим здоровье клиента
+		for {
+			time.Sleep(5 * time.Second)
+			if !client.IsReady() {
+				log.Printf("⚠️ MTProto client died, reconnecting...")
+				mtprotoMu.Lock()
+				if mtprotoClient == client {
+					mtprotoClient = nil
+				}
+				mtprotoMu.Unlock()
+				client.Close()
+				break
+			}
+		}
 	}
 }
 
-// getMTProtoClient возвращает текущего клиента
+// getMTProtoClient возвращает текущего живого клиента
 func getMTProtoClient() (*mtproto.Client, bool) {
 	mtprotoMu.RLock()
 	defer mtprotoMu.RUnlock()
-
-	log.Printf("DEBUG: mtprotoReady=%v, client=%v", mtprotoReady, mtprotoClient != nil)
-	if mtprotoClient != nil {
-		log.Printf("DEBUG: client.IsReady()=%v", mtprotoClient.IsReady())
+	if mtprotoClient != nil && mtprotoClient.IsReady() {
+		return mtprotoClient, true
 	}
-
-	return mtprotoClient, mtprotoReady && mtprotoClient != nil && mtprotoClient.IsReady()
+	return nil, false
 }
 
 // Send отправляет сообщения в Telegram
@@ -168,11 +164,9 @@ func Send(ctx context.Context, parsedResult *msgparser.ParsedResult, headers map
 				log.Println(cm)
 				sentry.CaptureMessage(cm)
 
+				// Если клиент умер, ждём переподключения
 				if !client.IsReady() {
-					log.Printf("⚠️ Client died, will retry after reconnect")
-					mtprotoMu.Lock()
-					mtprotoReady = false
-					mtprotoMu.Unlock()
+					log.Printf("⚠️ Client died, waiting for reconnect...")
 					time.Sleep(3 * time.Second)
 					client, ready = getMTProtoClient()
 					if !ready {
@@ -206,10 +200,10 @@ func Send(ctx context.Context, parsedResult *msgparser.ParsedResult, headers map
 		} else {
 			log.Printf("tgMessage saved: %+v", tgMessage)
 		}
-
 		return
 	}
 
+	// Fallback на HTML (Bot API)
 	log.Printf("📡 Falling back to HTML messages")
 	messages := parsedResult.Messages
 
@@ -250,18 +244,15 @@ func Send(ctx context.Context, parsedResult *msgparser.ParsedResult, headers map
 		}
 
 		m.MessagesSent.WithLabelValues().Inc()
-
 		tgMessage := tgmessage.TgMessage{
 			CommentID: commentID,
 			MessageID: messageID,
 		}
-
 		if err := tgmessages.Create(context.Background(), tgMessage); err != nil {
 			log.Printf("error create tgmessage ID: %v", err)
 		} else {
 			log.Printf("tgMessage saved: %+v", tgMessage)
 		}
-
 		time.Sleep(time.Second * 3)
 	}
 }
