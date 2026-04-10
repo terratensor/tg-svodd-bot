@@ -57,9 +57,11 @@ func New(ctx context.Context) (*Client, error) {
 			return nil, fmt.Errorf("invalid secret hex: %w", err)
 		}
 
-		// Используем встроенную поддержку MTProto прокси в gotd/td
-		// dcs.MTProxy() создает правильный резолвер с обфускацией
-		mtProxy := dcs.MTProxy(proxyAddr, secretBytes, dcs.MTProxyOptions{})
+		// dcs.MTProxy возвращает (Resolver, error)
+		mtProxy, err := dcs.MTProxy(proxyAddr, secretBytes, dcs.MTProxyOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create MTProxy resolver: %w", err)
+		}
 		resolver = mtProxy
 
 		log.Printf("✅ MTProto resolver configured")
