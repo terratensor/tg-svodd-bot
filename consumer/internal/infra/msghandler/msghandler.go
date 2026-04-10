@@ -74,7 +74,7 @@ func Handler(
 
 			// Отправляем подготовленные сообщения в телеграм
 			// Передаем parsedResult.Messages ([]string) как раньше
-			msgsender.Send(ctx, parsedResult.Messages, r.Headers, tgmessages, m, buttonScheduler)
+			msgsender.Send(ctx, parsedResult, r.Headers, tgmessages, m, buttonScheduler)
 		}
 	}
 }
