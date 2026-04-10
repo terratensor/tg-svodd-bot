@@ -281,7 +281,7 @@ func (c *Client) SendFormattedMessage(ctx context.Context, chatID string, fm *do
 
 	// Добавляем подпись с источником
 	if fm.Signature != nil {
-		sigText := "\n\n" + fm.Signature.Text
+		sigText := "\n\nИсточник" // без ★
 		sigOffset := utf8.RuneCountInString(text) + 2
 
 		tgEntities = append(tgEntities, &tg.MessageEntityTextURL{
@@ -353,7 +353,7 @@ func (c *Client) SendFormattedMessageWithButton(ctx context.Context, chatID stri
 
 	// Добавляем подпись с источником (если есть)
 	if fm.Signature != nil {
-		sigText := "\n\n" + fm.Signature.Text
+		sigText := "\n\nИсточник" // без ★
 		sigOffset := utf8.RuneCountInString(text) + 2
 
 		tgEntities = append(tgEntities, &tg.MessageEntityTextURL{

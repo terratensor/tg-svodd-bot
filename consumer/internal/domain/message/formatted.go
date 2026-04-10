@@ -39,7 +39,6 @@ type FormattedMessage struct {
 	Signature *Signature      // Подпись с источником
 }
 
-// HasButton возвращает true если нужно добавить кнопку
 func (fm *FormattedMessage) AddSourceButton(url string) {
 	fm.Signature = &Signature{
 		Text: "★ Источник",

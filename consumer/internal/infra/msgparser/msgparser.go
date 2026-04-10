@@ -52,6 +52,12 @@ type ParsedResult struct {
 	FormattedMsgs []*message.FormattedMessage // разбитое на части (для MTProto)
 }
 
+// Вместо возврата одной строки, возвращаем структуру с обеими версиями
+type BlockquoteResult struct {
+	HTML      string
+	PlainText string
+}
+
 func New(tgmessages *tgmessage.TgMessages) *Parser {
 	msgMaxChars, err := strconv.Atoi(os.Getenv("MSG_MAX_CHARS"))
 	if err != nil || msgMaxChars == 0 {
@@ -79,6 +85,7 @@ func (p *Parser) Parse(ctx context.Context, msg string, headers map[string]strin
 
 	var nodes []Chunk
 	var quoteText string
+	var quotePlainText string // ДОБАВЛЕНО: чистый текст цитаты
 
 	var f func(*html.Node)
 	f = func(n *html.Node) {
@@ -94,7 +101,9 @@ func (p *Parser) Parse(ctx context.Context, msg string, headers map[string]strin
 			return
 		}
 		if n.Type == html.ElementNode && n.Data == "blockquote" {
-			quoteText = p.processBlockquote(ctx, n)
+			result := p.processBlockquote(ctx, n) // ИЗМЕНЕНО: возвращает BlockquoteResult
+			quoteText = result.HTML
+			quotePlainText = result.PlainText // ДОБАВЛЕНО
 			nodes = append(nodes, Chunk{Text: quoteText, Type: Blockquote})
 			return
 		}
@@ -110,8 +119,8 @@ func (p *Parser) Parse(ctx context.Context, msg string, headers map[string]strin
 	}
 	f(n)
 
-	// Создаем форматированное сообщение
-	formatted := p.buildFormattedMessage(nodes, quoteText, headers)
+	// Создаем форматированное сообщение с чистым текстом цитаты
+	formatted := p.buildFormattedMessage(nodes, quotePlainText, headers) // ИЗМЕНЕНО: передаем quotePlainText
 
 	// Создаем HTML версию для обратной совместимости
 	var builder strings.Builder
@@ -145,44 +154,44 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 	var textBuilder strings.Builder
 	offset := 0
 
+	// Обрабатываем цитату (чистый текст)
+	if quote != "" {
+		fm.Quote = quote
+
+		// Добавляем цитату в текст
+		textBuilder.WriteString(quote)
+		textBuilder.WriteString("\n\n")
+
+		// Добавляем Blockquote entity
+		fm.Entities = append(fm.Entities, message.MessageEntity{
+			Type:   message.EntityBlockquote,
+			Offset: offset,
+			Length: utf8.RuneCountInString(quote),
+		})
+		offset += utf8.RuneCountInString(quote) + 2
+	}
+
+	// Обрабатываем остальные ноды
 	for _, node := range nodes {
-		switch node.Type {
-		case Text:
-			text := strings.TrimSpace(node.Text)
-			textBuilder.WriteString(text)
+		if node.Type == Text {
+			cleanText := strings.TrimSpace(node.Text)
+			textBuilder.WriteString(cleanText)
 			textBuilder.WriteString(" ")
-			offset += utf8.RuneCountInString(text) + 1
-
-		case Blockquote:
-			fm.Quote = strings.TrimSpace(node.Text)
-			// Добавляем цитату как блок с форматированием
-			if fm.Quote != "" {
-				entity := message.MessageEntity{
-					Type:   message.EntityBlockquote,
-					Offset: offset,
-					Length: utf8.RuneCountInString(fm.Quote),
-				}
-				fm.Entities = append(fm.Entities, entity)
-				textBuilder.WriteString(fm.Quote)
-				textBuilder.WriteString("\n\n")
-				offset += utf8.RuneCountInString(fm.Quote) + 2
-			}
-
-		case Inline:
-			text := strings.TrimSpace(node.Text)
+			offset += utf8.RuneCountInString(cleanText) + 1
+		}
+		if node.Type == Inline {
+			cleanText := strings.TrimSpace(node.Text)
 			if node.URL != "" {
-				fm.Links = append(fm.Links, message.Link{URL: node.URL, Text: text})
-				entity := message.MessageEntity{
+				fm.Entities = append(fm.Entities, message.MessageEntity{
 					Type:   message.EntityTextURL,
 					Offset: offset,
-					Length: utf8.RuneCountInString(text),
+					Length: utf8.RuneCountInString(cleanText),
 					URL:    node.URL,
-				}
-				fm.Entities = append(fm.Entities, entity)
+				})
 			}
-			textBuilder.WriteString(text)
+			textBuilder.WriteString(cleanText)
 			textBuilder.WriteString(" ")
-			offset += utf8.RuneCountInString(text) + 1
+			offset += utf8.RuneCountInString(cleanText) + 1
 		}
 	}
 
@@ -252,7 +261,7 @@ func (p *Parser) splitMessage(msg string, headers map[string]string) ([]string, 
 	return addSignature(msgs, msgsign)
 }
 
-func (p *Parser) processBlockquote(ctx context.Context, node *html.Node) string {
+func (p *Parser) processBlockquote(ctx context.Context, node *html.Node) BlockquoteResult {
 	var text string
 	newline := ""
 	for el := node.FirstChild; el != nil; el = el.NextSibling {
@@ -292,12 +301,19 @@ func (p *Parser) processBlockquote(ctx context.Context, node *html.Node) string 
 	text = p.truncateText(text)
 	// Удаляем никнеймы из цитаты
 	text = p.removeUsernames(ctx, text)
+
+	// Сохраняем чистый текст для FormattedMessage (без HTML тегов)
+	plainText := text
+
 	// Только после этого запукаем фукцию экранирования специальных символов,
 	// т.к. функция после экранирования увеличивает размер строки за счет преобразования символов: characters like "<" to become "&lt;"
 	text = html.EscapeString(text)
 
-	// Изменена логика, разбиваем цитату по разделителю \n и работаем только с первым элементом среза,
-	// обрабатываем этот фрагмент функцией TruncateText и добавляем его в билдер
+	// Изменена логика, разбиваем цитату по разделителю \n и каждый блок оборачивается тегом <i></i>,
+	// таким образом, когда в последующем будет производиться проверка на превышение разрешенной длины сообщения 4096,
+	// и в случае превышения будет произведена разбивка текста сообщения по разделителю \n,
+	// то не должно быть блоков, которые окажутся без закрывающих тегов </i>
+
 	chunks := strings.SplitAfter(text, "\n")
 
 	// Форматирует заданный фрагмент строк цитаты в одну строку, разделенную символами новой строки.
@@ -319,9 +335,17 @@ func (p *Parser) processBlockquote(ctx context.Context, node *html.Node) string 
 		flag = 0
 	}
 
-	return strings.TrimSpace(builder.String())
-}
+	// Сохраняем HTML версию
+	htmlText := strings.TrimSpace(builder.String())
 
+	// Сохраняем чистый текст в поле Quote для FormattedMessage
+	// (нужно добавить поле в структуру или возвращать два значения)
+
+	return BlockquoteResult{
+		HTML:      htmlText,
+		PlainText: plainText,
+	}
+}
 func containsLineBreak(node *html.Node) bool {
 	for el := node.FirstChild; el != nil; el = el.NextSibling {
 		if el.Data == "br" {
