@@ -168,19 +168,25 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 			Offset: offset,
 			Length: utf8.RuneCountInString(quote),
 		})
-		offset += utf8.RuneCountInString(quote) + 2
+		offset += utf8.RuneCountInString(quote) + 2 // +2 за \n\n
 	}
 
-	// Обрабатываем остальные ноды
+	// Обрабатываем остальные ноды (текст после цитаты)
 	for _, node := range nodes {
 		if node.Type == Text {
 			cleanText := strings.TrimSpace(node.Text)
+			if cleanText == "" {
+				continue
+			}
 			textBuilder.WriteString(cleanText)
 			textBuilder.WriteString(" ")
 			offset += utf8.RuneCountInString(cleanText) + 1
 		}
 		if node.Type == Inline {
 			cleanText := strings.TrimSpace(node.Text)
+			if cleanText == "" {
+				continue
+			}
 			if node.URL != "" {
 				fm.Entities = append(fm.Entities, message.MessageEntity{
 					Type:   message.EntityTextURL,
