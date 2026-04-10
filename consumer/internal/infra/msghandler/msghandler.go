@@ -39,17 +39,18 @@ func Handler(
 			log.Printf("id=%s metadata=%+v", r.ID, r.Headers)
 
 			// Обрабатываем комментарий, заменяем, удаляем не поддерживаемые теги,
-			// форматируем и разбиваю на блоки не превышающие 4096 символов,
+			// форматируем и разбиваем на блоки не превышающие 4096 символов,
 			// для отправки в телеграм
-			messages, err := parser.Parse(ctx, r.Message, r.Headers)
+			parsedResult, err := parser.Parse(ctx, r.Message, r.Headers)
 			if err != nil {
 				sentry.CaptureMessage(fmt.Sprint(err))
 				log.Printf("error: %v Text: %s", err, r.Message)
+				continue
 			}
 
-			// Если сообщение одно, проверяем его длину без учета цитирования
-			if len(messages) == 1 {
-				message := messages[0]
+			// Проверяем длину сообщения (только для одиночных сообщений)
+			if len(parsedResult.Messages) == 1 {
+				message := parsedResult.Messages[0]
 				// Удаляем цитирование, обрамленное тегами <i></i>
 				re := regexp.MustCompile(`<i>.*?</i>`)
 				cleanedMessage := re.ReplaceAllString(message, "")
@@ -72,7 +73,8 @@ func Handler(
 			}
 
 			// Отправляем подготовленные сообщения в телеграм
-			msgsender.Send(ctx, messages, r.Headers, tgmessages, m, buttonScheduler)
+			// Передаем и HTML версию (для обратной совместимости) и форматированную (для MTProto)
+			msgsender.Send(ctx, parsedResult, r.Headers, tgmessages, m, buttonScheduler)
 		}
 	}
 }
