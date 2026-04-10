@@ -154,35 +154,34 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 	var textBuilder strings.Builder
 	offset := 0
 
-	// Обрабатываем цитату (чистый текст)
-	if quote != "" {
-		fm.Quote = quote
-
-		// Добавляем цитату в текст
-		textBuilder.WriteString(quote)
-		textBuilder.WriteString("\n\n")
-
-		// Добавляем Blockquote entity
-		fm.Entities = append(fm.Entities, message.MessageEntity{
-			Type:   message.EntityBlockquote,
-			Offset: offset,
-			Length: utf8.RuneCountInString(quote),
-		})
-		offset += utf8.RuneCountInString(quote) + 2 // +2 за \n\n
-	}
-
-	// Обрабатываем остальные ноды (текст после цитаты)
+	// Обрабатываем все ноды в порядке их следования
 	for _, node := range nodes {
-		if node.Type == Text {
+		switch node.Type {
+		case Blockquote:
 			cleanText := strings.TrimSpace(node.Text)
 			if cleanText == "" {
 				continue
 			}
 			textBuilder.WriteString(cleanText)
-			textBuilder.WriteString(" ")
-			offset += utf8.RuneCountInString(cleanText) + 1
-		}
-		if node.Type == Inline {
+			textBuilder.WriteString("\n\n")
+
+			fm.Entities = append(fm.Entities, message.MessageEntity{
+				Type:   message.EntityBlockquote,
+				Offset: offset,
+				Length: utf8.RuneCountInString(cleanText),
+			})
+			offset += utf8.RuneCountInString(cleanText) + 2
+
+		case Text:
+			cleanText := strings.TrimSpace(node.Text)
+			if cleanText == "" {
+				continue
+			}
+			textBuilder.WriteString(cleanText)
+			textBuilder.WriteString("\n\n") // Сохраняем абзацы!
+			offset += utf8.RuneCountInString(cleanText) + 2
+
+		case Inline:
 			cleanText := strings.TrimSpace(node.Text)
 			if cleanText == "" {
 				continue
@@ -198,12 +197,16 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 			textBuilder.WriteString(cleanText)
 			textBuilder.WriteString(" ")
 			offset += utf8.RuneCountInString(cleanText) + 1
+
+		case LineBreak:
+			textBuilder.WriteString("\n")
+			offset += 1
 		}
 	}
 
 	fm.Text = strings.TrimSpace(textBuilder.String())
 
-	// Добавляем подпись с источником
+	// Добавляем подпись с источником через Entity (НЕ Markdown!)
 	if link, ok := headers["comment_link"]; ok && link != "" {
 		fm.Signature = &message.Signature{
 			Text: "★ Источник",

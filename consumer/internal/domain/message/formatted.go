@@ -1,5 +1,11 @@
 package message
 
+import (
+	"unicode/utf8"
+
+	"github.com/gotd/td/tg"
+)
+
 // EntityType тип сущности форматирования
 type EntityType string
 
@@ -77,4 +83,22 @@ func (fm *FormattedMessage) AppendSourceLinkMarkdown(text string) string {
 		return text
 	}
 	return text + fm.FormatSourceLinkMarkdown()
+}
+
+// AddSignatureEntity добавляет подпись к тексту и возвращает обновленный текст + Entity
+func (fm *FormattedMessage) AddSignatureEntity(text string, tgEntities *[]tg.MessageEntityClass) string {
+	if fm.Signature == nil {
+		return text
+	}
+
+	sigText := "\n\n" + fm.Signature.Text
+	sigOffset := utf8.RuneCountInString(text) + 2
+
+	*tgEntities = append(*tgEntities, &tg.MessageEntityTextURL{
+		Offset: sigOffset,
+		Length: utf8.RuneCountInString(fm.Signature.Text),
+		URL:    fm.Signature.URL,
+	})
+
+	return text + sigText
 }
