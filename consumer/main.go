@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -49,6 +50,44 @@ func main() {
 			log.Fatalf("sentry.Init: %s", err)
 		}
 	}
+
+	// В main.go добавить после startMetricsServer()
+	go func() {
+		time.Sleep(5 * time.Second)
+		if os.Getenv("TG_WS_PROXY_ENABLED") == "true" {
+			proxyAddr := os.Getenv("TG_WS_PROXY_ADDR")
+			if proxyAddr == "" {
+				proxyAddr = "tg-ws-proxy:1443"
+			}
+
+			// Пробуем простое TCP соединение
+			conn, err := net.DialTimeout("tcp", proxyAddr, 5*time.Second)
+			if err != nil {
+				log.Printf("❌ Cannot connect to proxy %s: %v", proxyAddr, err)
+			} else {
+				log.Printf("✅ TCP connection to proxy %s successful", proxyAddr)
+				conn.Close()
+
+				// Пробуем HTTP запрос через прокси
+				client := &http.Client{
+					Transport: &http.Transport{
+						DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+							return net.Dial("tcp", proxyAddr)
+						},
+					},
+					Timeout: 10 * time.Second,
+				}
+
+				resp, err := client.Get("https://api.telegram.org")
+				if err != nil {
+					log.Printf("❌ HTTP request through proxy failed: %v", err)
+				} else {
+					log.Printf("✅ HTTP request through proxy successful: %s", resp.Status)
+					resp.Body.Close()
+				}
+			}
+		}
+	}()
 
 	// Создаем метрики
 	m := metrics.NewMetrics()
