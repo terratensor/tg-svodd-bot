@@ -280,7 +280,8 @@ func (c *Client) SendFormattedMessage(ctx context.Context, chatID string, fm *do
 	text := fm.Text
 
 	// Добавляем подпись с источником
-	text = fm.AppendSourceLinkMarkdown(text)
+	// ... конвертация fm.Entities в tgEntities ...
+	text = fm.AddSignatureEntity(text, &tgEntities)
 
 	// ========== ЛОГИ ДЛЯ ОТЛАДКИ ENTITIES ==========
 	log.Printf("🔍 [SendFormattedMessageWithButton] Final text length: %d runes", utf8.RuneCountInString(text))
@@ -359,7 +360,8 @@ func (c *Client) SendFormattedMessageWithButton(ctx context.Context, chatID stri
 	text := fm.Text
 
 	// Добавляем подпись с источником
-	text = fm.AppendSourceLinkMarkdown(text)
+	// ... конвертация fm.Entities в tgEntities ...
+	text = fm.AddSignatureEntity(text, &tgEntities)
 
 	// Создаем инлайн клавиатуру с кнопкой
 	replyMarkup := &tg.ReplyInlineMarkup{
