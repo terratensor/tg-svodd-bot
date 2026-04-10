@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -25,21 +24,30 @@ var (
 	mtprotoCtx        context.Context
 	mtprotoCancel     context.CancelFunc
 	mtprotoReady      bool
+	mtprotoMu         sync.RWMutex
 )
 
-// initMTProto инициализирует MTProto клиент с автоматическим восстановлением
-func initMTProto() {
+// InitMTProto глобальная инициализация (вызывается из main)
+func InitMTProto() {
+	if os.Getenv("TG_WS_PROXY_ENABLED") != "true" {
+		log.Printf("📡 MTProto disabled")
+		return
+	}
+
 	mtprotoClientOnce.Do(func() {
-		if os.Getenv("TG_WS_PROXY_ENABLED") != "true" {
-			log.Printf("📡 MTProto disabled")
-			return
-		}
-
 		mtprotoCtx, mtprotoCancel = context.WithCancel(context.Background())
-
-		// Запускаем менеджер подключения с повторными попытками
 		go mtprotoConnectionManager(mtprotoCtx)
 	})
+}
+
+// ShutdownMTProto закрывает MTProto клиент (вызывается при завершении)
+func ShutdownMTProto() {
+	if mtprotoCancel != nil {
+		mtprotoCancel()
+	}
+	if mtprotoClient != nil {
+		mtprotoClient.Close()
+	}
 }
 
 // mtprotoConnectionManager управляет подключением с повторными попытками
@@ -63,74 +71,78 @@ func mtprotoConnectionManager(ctx context.Context) {
 			continue
 		}
 
-		mtprotoClient = client
-
 		log.Printf("🔌 Connecting MTProto client...")
-		if err := mtprotoClient.Connect(ctx); err != nil {
+		if err := client.Connect(ctx); err != nil {
 			log.Printf("❌ MTProto connect failed: %v, retrying in %v", err, retryDelay)
-			mtprotoReady = false
+			client.Close()
 			time.Sleep(retryDelay)
 			retryDelay = min(retryDelay*2, maxRetryDelay)
 			continue
 		}
 
+		mtprotoMu.Lock()
+		mtprotoClient = client
 		mtprotoReady = true
+		mtprotoMu.Unlock()
+
 		log.Printf("✅ MTProto client connected and ready")
 
-		// Сброс задержки при успешном подключении
 		retryDelay = 5 * time.Second
 
-		// Ждем пока соединение живо
 		<-ctx.Done()
+
+		mtprotoMu.Lock()
+		mtprotoReady = false
+		if mtprotoClient != nil {
+			mtprotoClient.Close()
+			mtprotoClient = nil
+		}
+		mtprotoMu.Unlock()
+
 		return
 	}
 }
 
-// shutdownMTProto закрывает MTProto клиент
-func shutdownMTProto() {
-	if mtprotoCancel != nil {
-		mtprotoCancel()
-	}
-	if mtprotoClient != nil {
-		mtprotoClient.Close()
-	}
+// getMTProtoClient возвращает текущего клиента
+func getMTProtoClient() (*mtproto.Client, bool) {
+	mtprotoMu.RLock()
+	defer mtprotoMu.RUnlock()
+	return mtprotoClient, mtprotoReady && mtprotoClient != nil && mtprotoClient.IsReady()
 }
 
 // Send отправляет сообщения в Telegram
 func Send(ctx context.Context, parsedResult *msgparser.ParsedResult, headers map[string]string,
 	tgmessages *tgmessage.TgMessages, m *metrics.Metrics, buttonScheduler *buttonscheduler.ButtonScheduler) {
 
-	// Инициализируем MTProto если прокси включен
-	initMTProto()
-
-	// Ждем готовности MTProto клиента перед отправкой
-	if os.Getenv("TG_WS_PROXY_ENABLED") == "true" {
-		log.Printf("⏳ Waiting for MTProto client to be ready...")
-		for i := 0; i < 60; i++ {
-			if mtprotoReady && mtprotoClient != nil && mtprotoClient.IsReady() {
-				log.Printf("✅ MTProto client ready, proceeding with send")
-				break
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-	}
-
-	defer shutdownMTProto()
-
 	chatID := os.Getenv("TG_CHAT_ID")
 
-	// Парсим ID комментария
 	commentID, err := strconv.Atoi(headers["comment_id"])
 	if err != nil {
 		log.Printf("can not parse comment_id %v", err)
 		commentID = 0
 	}
 
-	// Проверяем готовность MTProto клиента
-	useMTProto := os.Getenv("TG_WS_PROXY_ENABLED") == "true" && mtprotoClient != nil && mtprotoClient.IsReady()
+	useMTProto := os.Getenv("TG_WS_PROXY_ENABLED") == "true"
+	var client *mtproto.Client
+	var ready bool
 
-	// Если MTProto готов и есть форматированное сообщение - отправляем через него
-	if useMTProto && parsedResult.Formatted != nil {
+	if useMTProto {
+		log.Printf("⏳ Waiting for MTProto client to be ready...")
+		for i := 0; i < 60; i++ {
+			client, ready = getMTProtoClient()
+			if ready {
+				log.Printf("✅ MTProto client ready, proceeding with send")
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		if !ready {
+			log.Printf("❌ MTProto client not ready, falling back to HTML")
+			useMTProto = false
+		}
+	}
+
+	if useMTProto && parsedResult.Formatted != nil && client != nil {
 		log.Printf("🚀 Sending formatted message via MTProto")
 
 		var messageID int32
@@ -142,11 +154,11 @@ func Send(ctx context.Context, parsedResult *msgparser.ParsedResult, headers map
 
 			if buttonScheduler.ShouldShowButton() {
 				qurl, _ := cleanQuestionURL(headers["comment_link"])
-				id, err = mtprotoClient.SendFormattedMessageWithButton(ctx, chatID,
+				id, err = client.SendFormattedMessageWithButton(ctx, chatID,
 					parsedResult.Formatted, "Подключайтесь к соборному интеллекту", qurl)
 				buttonScheduler.Reset()
 			} else {
-				id, err = mtprotoClient.SendFormattedMessage(ctx, chatID, parsedResult.Formatted)
+				id, err = client.SendFormattedMessage(ctx, chatID, parsedResult.Formatted)
 			}
 
 			if err != nil {
@@ -154,6 +166,20 @@ func Send(ctx context.Context, parsedResult *msgparser.ParsedResult, headers map
 				cm := fmt.Sprintf("MTProto send error (attempt %d/100): %v", attempt, err)
 				log.Println(cm)
 				sentry.CaptureMessage(cm)
+
+				if !client.IsReady() {
+					log.Printf("⚠️ Client died, will retry after reconnect")
+					mtprotoMu.Lock()
+					mtprotoReady = false
+					mtprotoMu.Unlock()
+					time.Sleep(3 * time.Second)
+					client, ready = getMTProtoClient()
+					if !ready {
+						log.Printf("❌ Still not ready, falling back to HTML")
+						useMTProto = false
+						break
+					}
+				}
 				time.Sleep(time.Second * 5)
 				continue
 			}
@@ -169,7 +195,6 @@ func Send(ctx context.Context, parsedResult *msgparser.ParsedResult, headers map
 			return
 		}
 
-		// Сохраняем в БД
 		m.MessagesSent.WithLabelValues().Inc()
 		tgMessage := tgmessage.TgMessage{
 			CommentID: commentID,
@@ -184,12 +209,10 @@ func Send(ctx context.Context, parsedResult *msgparser.ParsedResult, headers map
 		return
 	}
 
-	// Fallback: используем HTML сообщения
 	log.Printf("📡 Falling back to HTML messages")
 	messages := parsedResult.Messages
 
 	for i, text := range messages {
-		// Для fallback используем текст как есть
 		msgText := text
 
 		shouldShowButton := buttonScheduler.ShouldShowButton() && i == len(messages)-1
@@ -201,14 +224,11 @@ func Send(ctx context.Context, parsedResult *msgparser.ParsedResult, headers map
 		var sendErr error
 
 		for attempt := 1; attempt <= 100; attempt++ {
-			if useMTProto {
-				// Отправляем простой текст через MTProto
-				id, err := mtprotoClient.SendMessage(ctx, chatID, msgText)
+			if useMTProto && client != nil {
+				id, err := client.SendMessage(ctx, chatID, msgText)
 				if err != nil {
 					sendErr = err
-					cm := fmt.Sprintf("MTProto send error (attempt %d/100): %v", attempt, err)
-					log.Println(cm)
-					sentry.CaptureMessage(cm)
+					log.Printf("MTProto send error (attempt %d/100): %v", attempt, err)
 					time.Sleep(time.Second * 5)
 					continue
 				}
@@ -245,17 +265,18 @@ func Send(ctx context.Context, parsedResult *msgparser.ParsedResult, headers map
 	}
 }
 
-// cleanQuestionURL очищает URL от фрагментов
+func min(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func cleanQuestionURL(rawURL string) (string, error) {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("ошибка при разборе URL: %v", err)
 	}
-
-	// Кодируем fragment, заменяем пробелы на %20
-	if parsedURL.Fragment != "" {
-		parsedURL.Fragment = strings.ReplaceAll(parsedURL.Fragment, " ", "%20")
-	}
-
+	parsedURL.Fragment = ""
 	return parsedURL.String(), nil
 }
