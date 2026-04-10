@@ -28,23 +28,69 @@ type MTProtoClient struct {
 	cancel context.CancelFunc
 }
 
+// getAppCredentials возвращает appID и appHash из переменных окружения
+// или дефолтные тестовые значения, если переменные не установлены
+func getAppCredentials() (int, string) {
+	// Дефолтные тестовые значения из примеров gotd/td
+	defaultAppID := 2040
+	defaultAppHash := "b18441a1ff607e10a989891a5462e627"
+
+	appID := defaultAppID
+	appHash := defaultAppHash
+
+	// Читаем AppID из переменной окружения
+	if envAppID := os.Getenv("TG_APP_ID"); envAppID != "" {
+		if id, err := strconv.Atoi(envAppID); err == nil {
+			appID = id
+			log.Printf("📱 Using custom TG_APP_ID: %d", appID)
+		} else {
+			log.Printf("⚠️ Invalid TG_APP_ID '%s', using default: %d", envAppID, defaultAppID)
+		}
+	} else {
+		log.Printf("📱 Using default TG_APP_ID: %d", appID)
+	}
+
+	// Читаем AppHash из переменной окружения
+	if envAppHash := os.Getenv("TG_APP_HASH"); envAppHash != "" {
+		appHash = envAppHash
+		log.Printf("🔑 Using custom TG_APP_HASH: %s...", appHash[:8])
+	} else {
+		log.Printf("🔑 Using default TG_APP_HASH")
+	}
+
+	return appID, appHash
+}
+
+// getBotToken возвращает токен бота из переменной окружения или файла
+func getBotToken() (string, error) {
+	// Сначала пробуем прочитать из переменной окружения
+	if envToken := os.Getenv("TG_BOT_TOKEN"); envToken != "" {
+		return strings.TrimSpace(envToken), nil
+	}
+
+	// Затем пробуем прочитать из файла
+	tokenFile := os.Getenv("TG_BOT_TOKEN_FILE")
+	if tokenFile == "" {
+		return "", fmt.Errorf("TG_BOT_TOKEN or TG_BOT_TOKEN_FILE must be set")
+	}
+
+	contents, err := os.ReadFile(tokenFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to read token file: %w", err)
+	}
+
+	return strings.TrimSpace(string(contents)), nil
+}
+
 func NewMTProtoClient(ctx context.Context) (*MTProtoClient, error) {
 	// Получаем токен бота
-	var token string
-	if envToken := os.Getenv("TG_BOT_TOKEN"); envToken != "" {
-		token = envToken
-	} else {
-		contents, err := os.ReadFile(os.Getenv("TG_BOT_TOKEN_FILE"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to read token file: %w", err)
-		}
-		token = string(contents)
+	token, err := getBotToken()
+	if err != nil {
+		return nil, err
 	}
-	token = strings.TrimSpace(token)
 
-	// App ID и Hash
-	appID := 2040
-	appHash := "b18441a1ff607e10a989891a5462e627"
+	// Получаем appID и appHash
+	appID, appHash := getAppCredentials()
 
 	var resolver dcs.Resolver
 

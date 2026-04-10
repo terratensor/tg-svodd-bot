@@ -1,6 +1,7 @@
 package msgsender
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,13 +12,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
 	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/domain/message"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/buttonscheduler"
-	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/proxy"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/mtproto"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/metrics"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/repos/tgmessage"
 )
@@ -39,22 +39,58 @@ type Msgresponse struct {
 }
 
 var (
-	proxyClient     *proxy.TelegramProxyClient
-	proxyClientOnce sync.Once
+	mtprotoClient     *mtproto.MTProtoClient
+	mtprotoClientOnce sync.Once
+	mtprotoReady      bool
+	mtprotoCtx        context.Context
+	mtprotoCancel     context.CancelFunc
 )
 
-func getProxyClient() *proxy.TelegramProxyClient {
-	proxyClientOnce.Do(func() {
-		proxyClient = proxy.NewTelegramProxyClient()
+// initMTProto инициализирует MTProto клиент если прокси включен
+func initMTProto() {
+	mtprotoClientOnce.Do(func() {
+		if os.Getenv("TG_WS_PROXY_ENABLED") != "true" {
+			log.Printf("📡 MTProto proxy disabled, using HTTP API")
+			return
+		}
+
+		log.Printf("🔄 Initializing MTProto client...")
+
+		mtprotoCtx, mtprotoCancel = context.WithCancel(context.Background())
+
+		client, err := mtproto.NewMTProtoClient(mtprotoCtx)
+		if err != nil {
+			log.Printf("⚠️ Failed to create MTProto client: %v", err)
+			return
+		}
+
+		mtprotoClient = client
+
+		// Запускаем подключение в горутине
+		go func() {
+			if err := mtprotoClient.Connect(mtprotoCtx); err != nil {
+				log.Printf("⚠️ MTProto connect failed: %v", err)
+				return
+			}
+			mtprotoReady = true
+			log.Printf("✅ MTProto client connected and ready")
+		}()
 	})
-	return proxyClient
 }
 
+// shutdownMTProto закрывает MTProto клиент при завершении
+func shutdownMTProto() {
+	if mtprotoCancel != nil {
+		mtprotoCancel()
+	}
+	if mtprotoClient != nil {
+		mtprotoClient.Close()
+	}
+}
+
+// Send отправляет сообщения в Telegram
 func Send(ctx context.Context, messages []string, headers map[string]string, tgmessages *tgmessage.TgMessages,
 	m *metrics.Metrics, buttonScheduler *buttonscheduler.ButtonScheduler) {
-
-	contents, _ := os.ReadFile(os.Getenv("TG_BOT_TOKEN_FILE"))
-	token := fmt.Sprintf("%v", strings.Trim(string(contents), "\r\n"))
 
 	chatID := os.Getenv("TG_CHAT_ID")
 
@@ -65,8 +101,84 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 		commentID = 0
 	}
 
-	// Получаем клиент прокси
-	proxyClient := getProxyClient()
+	// Инициализируем MTProto если прокси включен
+	initMTProto()
+	defer shutdownMTProto()
+
+	// Ждем готовности MTProto (до 5 секунд)
+	if os.Getenv("TG_WS_PROXY_ENABLED") == "true" {
+		for i := 0; i < 50; i++ {
+			if mtprotoReady && mtprotoClient != nil && mtprotoClient.IsReady() {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	// Пробуем отправить через MTProto если готов
+	if mtprotoReady && mtprotoClient != nil && mtprotoClient.IsReady() {
+		log.Printf("🚀 Sending %d messages via MTProto proxy", len(messages))
+
+		allSent := true
+		for i, text := range messages {
+			// Проверяем, нужно ли показывать кнопку
+			var msgText string
+			if buttonScheduler.ShouldShowButton() && i == len(messages)-1 {
+				msgText = addButtonToMessage(text, headers["comment_link"])
+				buttonScheduler.Reset()
+			} else {
+				msgText = text
+			}
+
+			log.Printf("📤 Sending message %d/%d via MTProto", i+1, len(messages))
+
+			msgID, err := mtprotoClient.SendMessage(ctx, chatID, msgText)
+			if err != nil {
+				log.Printf("❌ MTProto send failed for message %d: %v", i+1, err)
+				allSent = false
+				break
+			}
+
+			log.Printf("✅ Message %d sent via MTProto proxy: ID=%d", i+1, msgID)
+
+			// Сохраняем в БД
+			tgMessage := tgmessage.TgMessage{
+				CommentID: commentID,
+				MessageID: int32(msgID),
+			}
+
+			if err := tgmessages.Create(ctx, tgMessage); err != nil {
+				log.Printf("error create tgmessage: %v", err)
+			}
+
+			m.MessagesSent.WithLabelValues().Inc()
+
+			// Ожидаем 3 секунды после отправки
+			if i < len(messages)-1 {
+				time.Sleep(time.Second * 3)
+			}
+		}
+
+		if allSent {
+			log.Printf("✅ All %d messages sent via MTProto", len(messages))
+			return
+		}
+
+		log.Printf("⚠️ Falling back to HTTP API due to MTProto errors")
+	}
+
+	// Fallback к HTTP API
+	sendViaHTTP(ctx, messages, headers, tgmessages, m, buttonScheduler, chatID, commentID)
+}
+
+// sendViaHTTP отправляет сообщения через HTTP API Telegram
+func sendViaHTTP(ctx context.Context, messages []string, headers map[string]string, tgmessages *tgmessage.TgMessages,
+	m *metrics.Metrics, buttonScheduler *buttonscheduler.ButtonScheduler, chatID string, commentID int) {
+
+	log.Printf("📡 Sending %d messages via HTTP API", len(messages))
+
+	contents, _ := os.ReadFile(os.Getenv("TG_BOT_TOKEN_FILE"))
+	token := fmt.Sprintf("%v", strings.Trim(string(contents), "\r\n"))
 
 	for i, text := range messages {
 		msg := &message.Message{
@@ -81,7 +193,7 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 			if err == nil {
 				button := message.InlineButton{
 					Text:         "Подключайтесь к соборному интеллекту",
-					CallbackData: qurl,
+					CallbackData: qurl, // Передаем URL в callback_data
 					URL:          qurl,
 				}
 
@@ -98,8 +210,8 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 		}
 
 		for attempt := 1; attempt <= 100; attempt++ {
-			// Делаем 100 попыток отправки
-			messageID, err := sendMessageWithProxy(ctx, proxyClient, token, msg)
+			// Делаем 100 попыток отправки, если получена ошибка
+			messageID, err := sendMessageHTTP(token, msg)
 			if err != nil {
 				cm := fmt.Sprintf("error: %v Text: %s", err, msg.Text)
 				log.Println(cm)
@@ -133,15 +245,20 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 	}
 }
 
-// sendMessageWithProxy отправляет сообщение через прокси
-func sendMessageWithProxy(ctx context.Context, proxyClient *proxy.TelegramProxyClient, token string, message *message.Message) (*int32, error) {
+// sendMessageHTTP отправляет сообщение через HTTP API
+func sendMessageHTTP(token string, message *message.Message) (*int32, error) {
+	tgUrl := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
+
 	payload, err := json.Marshal(message)
 	if err != nil {
 		return nil, err
 	}
 
-	// Используем прокси клиент
-	response, err := proxyClient.SendMessage(ctx, token, payload)
+	// Отправляем запрос с установленным ограничением на ответ в 10 секунд
+	client := http.Client{
+		Timeout: 10 * time.Second,
+	}
+	response, err := client.Post(tgUrl, "application/json", bytes.NewBuffer(payload))
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +285,19 @@ func sendMessageWithProxy(ctx context.Context, proxyClient *proxy.TelegramProxyC
 	return &messageID, nil
 }
 
+// addButtonToMessage добавляет кнопку к сообщению для MTProto
+// Примечание: MTProto не поддерживает HTML кнопки, поэтому пока просто возвращаем текст
+// TODO: Реализовать поддержку inline-клавиатур через MTProto
+func addButtonToMessage(text string, link string) string {
+	// В MTProto кнопки добавляются отдельно через reply_markup
+	// Пока возвращаем текст с ссылкой
+	if link != "" {
+		return text + "\n\n🔗 " + link
+	}
+	return text
+}
+
+// cleanQuestionURL очищает URL от фрагментов
 func cleanQuestionURL(rawURL string) (string, error) {
 	// Парсим URL
 	parsedURL, err := url.Parse(rawURL)
