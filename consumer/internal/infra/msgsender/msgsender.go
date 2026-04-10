@@ -44,6 +44,7 @@ var (
 	mtprotoReady      bool
 	mtprotoCtx        context.Context
 	mtprotoCancel     context.CancelFunc
+	mtprotoMutex      sync.RWMutex
 )
 
 // initMTProto инициализирует MTProto клиент если прокси включен
@@ -60,7 +61,7 @@ func initMTProto() {
 
 		client, err := mtproto.NewMTProtoClient(mtprotoCtx)
 		if err != nil {
-			log.Printf("⚠️ Failed to create MTProto client: %v", err)
+			log.Printf("❌ Failed to create MTProto client: %v", err)
 			return
 		}
 
@@ -68,14 +69,44 @@ func initMTProto() {
 
 		// Запускаем подключение в горутине
 		go func() {
+			log.Printf("🔌 Connecting to MTProto proxy...")
 			if err := mtprotoClient.Connect(mtprotoCtx); err != nil {
-				log.Printf("⚠️ MTProto connect failed: %v", err)
+				log.Printf("❌ MTProto connect failed: %v", err)
 				return
 			}
+
+			mtprotoMutex.Lock()
 			mtprotoReady = true
+			mtprotoMutex.Unlock()
+
 			log.Printf("✅ MTProto client connected and ready")
 		}()
 	})
+}
+
+// waitForMTProto ожидает готовности MTProto клиента
+func waitForMTProto(timeout time.Duration) bool {
+	if os.Getenv("TG_WS_PROXY_ENABLED") != "true" {
+		return false
+	}
+
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		mtprotoMutex.RLock()
+		ready := mtprotoReady && mtprotoClient != nil && mtprotoClient.IsReady()
+		mtprotoMutex.RUnlock()
+
+		if ready {
+			log.Printf("✅ MTProto client is ready")
+			return true
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	log.Printf("⚠️ MTProto client not ready after %v", timeout)
+	return false
 }
 
 // shutdownMTProto закрывает MTProto клиент при завершении
@@ -103,20 +134,12 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 
 	// Инициализируем MTProto если прокси включен
 	initMTProto()
-	defer shutdownMTProto()
 
-	// Ждем готовности MTProto (до 5 секунд)
-	if os.Getenv("TG_WS_PROXY_ENABLED") == "true" {
-		for i := 0; i < 50; i++ {
-			if mtprotoReady && mtprotoClient != nil && mtprotoClient.IsReady() {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
+	// Ждем готовности MTProto (до 30 секунд)
+	mtprotoAvailable := waitForMTProto(30 * time.Second)
 
 	// Пробуем отправить через MTProto если готов
-	if mtprotoReady && mtprotoClient != nil && mtprotoClient.IsReady() {
+	if mtprotoAvailable {
 		log.Printf("🚀 Sending %d messages via MTProto proxy", len(messages))
 
 		allSent := true
@@ -130,11 +153,12 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 				msgText = text
 			}
 
-			log.Printf("📤 Sending message %d/%d via MTProto", i+1, len(messages))
+			log.Printf("📤 Sending message %d/%d via MTProto (length: %d chars)", i+1, len(messages), len(msgText))
 
 			msgID, err := mtprotoClient.SendMessage(ctx, chatID, msgText)
 			if err != nil {
 				log.Printf("❌ MTProto send failed for message %d: %v", i+1, err)
+				sentry.CaptureException(err)
 				allSent = false
 				break
 			}
@@ -161,14 +185,28 @@ func Send(ctx context.Context, messages []string, headers map[string]string, tgm
 
 		if allSent {
 			log.Printf("✅ All %d messages sent via MTProto", len(messages))
+			shutdownMTProto()
 			return
 		}
 
 		log.Printf("⚠️ Falling back to HTTP API due to MTProto errors")
 	}
 
-	// Fallback к HTTP API
-	sendViaHTTP(ctx, messages, headers, tgmessages, m, buttonScheduler, chatID, commentID)
+	// Проверяем, можно ли использовать HTTP API
+	if os.Getenv("TG_WS_PROXY_ENABLED") == "true" && !mtprotoAvailable {
+		log.Printf("❌ MTProto not available and HTTP API is blocked. Message will be lost.")
+		// TODO: Сохранить сообщение для повторной отправки
+		return
+	}
+
+	// Fallback к HTTP API (только если прокси отключен)
+	if os.Getenv("TG_WS_PROXY_ENABLED") != "true" {
+		sendViaHTTP(ctx, messages, headers, tgmessages, m, buttonScheduler, chatID, commentID)
+	} else {
+		log.Printf("❌ Cannot send message: MTProto failed and HTTP fallback disabled")
+	}
+
+	shutdownMTProto()
 }
 
 // sendViaHTTP отправляет сообщения через HTTP API Telegram
@@ -187,13 +225,13 @@ func sendViaHTTP(ctx context.Context, messages []string, headers map[string]stri
 			ParseMode: "HTML",
 		}
 
-		// Проверяем, нужно ли показывать кнопку (только на последнем сообщении)
+		// Проверяем, нужно ли показывать кнопку
 		if buttonScheduler.ShouldShowButton() && i == len(messages)-1 {
 			qurl, err := cleanQuestionURL(headers["comment_link"])
 			if err == nil {
 				button := message.InlineButton{
 					Text:         "Подключайтесь к соборному интеллекту",
-					CallbackData: qurl, // Передаем URL в callback_data
+					CallbackData: qurl,
 					URL:          qurl,
 				}
 
@@ -204,43 +242,27 @@ func sendViaHTTP(ctx context.Context, messages []string, headers map[string]stri
 					InlineKeyboard: inlineKeyboard,
 				}
 			}
-
-			// Сбрасываем счетчик и задаем новый интервал после показа кнопки
 			buttonScheduler.Reset()
 		}
 
-		for attempt := 1; attempt <= 100; attempt++ {
-			// Делаем 100 попыток отправки, если получена ошибка
-			messageID, err := sendMessageHTTP(token, msg)
-			if err != nil {
-				cm := fmt.Sprintf("error: %v Text: %s", err, msg.Text)
-				log.Println(cm)
-				sentry.CaptureMessage(cm)
-				time.Sleep(time.Second * 5)
-				continue
-			}
-
-			// Фиксируем метрику при отправке сообщения
-			m.MessagesSent.WithLabelValues().Inc()
-
-			// Формируем сообщение в БД
-			tgMessage := tgmessage.TgMessage{
-				CommentID: commentID,
-				MessageID: *messageID,
-			}
-
-			// Сохраняем ID сообщения в БД
-			err = tgmessages.Create(context.Background(), tgMessage)
-			if err != nil {
-				log.Printf("error create tgmessage ID: %v", err)
-			} else {
-				log.Printf("tgMessage: %+v", tgMessage)
-			}
-
-			break
+		messageID, err := sendMessageHTTP(token, msg)
+		if err != nil {
+			log.Printf("HTTP send failed: %v", err)
+			sentry.CaptureException(err)
+			continue
 		}
 
-		// Ожидаем 3 секунды после отправки
+		m.MessagesSent.WithLabelValues().Inc()
+
+		tgMessage := tgmessage.TgMessage{
+			CommentID: commentID,
+			MessageID: *messageID,
+		}
+
+		if err := tgmessages.Create(ctx, tgMessage); err != nil {
+			log.Printf("error create tgmessage: %v", err)
+		}
+
 		time.Sleep(time.Second * 3)
 	}
 }
@@ -254,7 +276,6 @@ func sendMessageHTTP(token string, message *message.Message) (*int32, error) {
 		return nil, err
 	}
 
-	// Отправляем запрос с установленным ограничением на ответ в 10 секунд
 	client := http.Client{
 		Timeout: 10 * time.Second,
 	}
@@ -278,36 +299,24 @@ func sendMessageHTTP(token string, message *message.Message) (*int32, error) {
 	if err != nil {
 		log.Printf("failed to decode response body %v", err)
 	} else {
-		log.Printf("response body: %v", j)
 		messageID = int32(j.Result["message_id"].(float64))
 	}
 
 	return &messageID, nil
 }
 
-// addButtonToMessage добавляет кнопку к сообщению для MTProto
-// Примечание: MTProto не поддерживает HTML кнопки, поэтому пока просто возвращаем текст
-// TODO: Реализовать поддержку inline-клавиатур через MTProto
 func addButtonToMessage(text string, link string) string {
-	// В MTProto кнопки добавляются отдельно через reply_markup
-	// Пока возвращаем текст с ссылкой
 	if link != "" {
 		return text + "\n\n🔗 " + link
 	}
 	return text
 }
 
-// cleanQuestionURL очищает URL от фрагментов
 func cleanQuestionURL(rawURL string) (string, error) {
-	// Парсим URL
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		return "", fmt.Errorf("ошибка при разборе URL: %v", err)
 	}
-
-	// Удаляем фрагмент (часть после #)
 	parsedURL.Fragment = ""
-
-	// Возвращаем очищенный URL в виде строки
 	return parsedURL.String(), nil
 }
