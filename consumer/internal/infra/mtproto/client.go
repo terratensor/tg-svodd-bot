@@ -293,6 +293,24 @@ func (c *Client) SendFormattedMessage(ctx context.Context, chatID string, fm *do
 		text += sigText
 	}
 
+	// ========== ЛОГИ ДЛЯ ОТЛАДКИ ENTITIES ==========
+	log.Printf("🔍 [SendFormattedMessageWithButton] Final text length: %d runes", utf8.RuneCountInString(text))
+	log.Printf("🔍 [SendFormattedMessageWithButton] Full text: %s", text)
+	for i, entity := range tgEntities {
+		switch e := entity.(type) {
+		case *tg.MessageEntityBlockquote:
+			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] BLOCKQUOTE: offset=%d, length=%d", i, e.Offset, e.Length)
+		case *tg.MessageEntityTextURL:
+			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] TEXT_URL: offset=%d, length=%d, url=%s", i, e.Offset, e.Length, e.URL)
+		case *tg.MessageEntityItalic:
+			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] ITALIC: offset=%d, length=%d", i, e.Offset, e.Length)
+		default:
+			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] OTHER: offset=%d, length=%d, type=%T",
+				i, entity.GetOffset(), entity.GetLength(), entity)
+		}
+	}
+	// ========== КОНЕЦ ЛОГОВ ==========
+
 	// Отправляем через прямой API вызов
 	request := &tg.MessagesSendMessageRequest{
 		Peer:     peer,
@@ -324,7 +342,7 @@ func (c *Client) SendFormattedMessageWithButton(ctx context.Context, chatID stri
 		return 0, fmt.Errorf("resolve peer failed: %w", err)
 	}
 
-	// Конвертируем entities
+	// Конвертируем наши entities в формат Telegram API
 	var tgEntities []tg.MessageEntityClass
 
 	for _, entity := range fm.Entities {
@@ -348,12 +366,12 @@ func (c *Client) SendFormattedMessageWithButton(ctx context.Context, chatID stri
 		}
 	}
 
-	// Формируем текст
+	// Формируем итоговый текст
 	text := fm.Text
 
-	// Добавляем подпись с источником (если есть)
+	// Добавляем подпись с источником
 	if fm.Signature != nil {
-		sigText := "\n\nИсточник" // без ★
+		sigText := "\n\n" + fm.Signature.Text
 		sigOffset := utf8.RuneCountInString(text) + 2
 
 		tgEntities = append(tgEntities, &tg.MessageEntityTextURL{
@@ -378,6 +396,24 @@ func (c *Client) SendFormattedMessageWithButton(ctx context.Context, chatID stri
 			},
 		},
 	}
+
+	// ========== ЛОГИ ДЛЯ ОТЛАДКИ ENTITIES ==========
+	log.Printf("🔍 [SendFormattedMessageWithButton] Final text length: %d runes", utf8.RuneCountInString(text))
+	log.Printf("🔍 [SendFormattedMessageWithButton] Full text: %s", text)
+	for i, entity := range tgEntities {
+		switch e := entity.(type) {
+		case *tg.MessageEntityBlockquote:
+			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] BLOCKQUOTE: offset=%d, length=%d", i, e.Offset, e.Length)
+		case *tg.MessageEntityTextURL:
+			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] TEXT_URL: offset=%d, length=%d, url=%s", i, e.Offset, e.Length, e.URL)
+		case *tg.MessageEntityItalic:
+			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] ITALIC: offset=%d, length=%d", i, e.Offset, e.Length)
+		default:
+			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] OTHER: offset=%d, length=%d, type=%T",
+				i, entity.GetOffset(), entity.GetLength(), entity)
+		}
+	}
+	// ========== КОНЕЦ ЛОГОВ ==========
 
 	// Отправляем через прямой API вызов с клавиатурой
 	request := &tg.MessagesSendMessageRequest{
