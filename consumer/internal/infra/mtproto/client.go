@@ -280,18 +280,7 @@ func (c *Client) SendFormattedMessage(ctx context.Context, chatID string, fm *do
 	text := fm.Text
 
 	// Добавляем подпись с источником
-	if fm.Signature != nil {
-		sigText := "\n\nИсточник" // без ★
-		sigOffset := utf8.RuneCountInString(text) + 2
-
-		tgEntities = append(tgEntities, &tg.MessageEntityTextURL{
-			Offset: sigOffset,
-			Length: utf8.RuneCountInString(fm.Signature.Text),
-			URL:    fm.Signature.URL,
-		})
-
-		text += sigText
-	}
+	text = fm.AppendSourceLinkMarkdown(text)
 
 	// ========== ЛОГИ ДЛЯ ОТЛАДКИ ENTITIES ==========
 	log.Printf("🔍 [SendFormattedMessageWithButton] Final text length: %d runes", utf8.RuneCountInString(text))
@@ -370,18 +359,7 @@ func (c *Client) SendFormattedMessageWithButton(ctx context.Context, chatID stri
 	text := fm.Text
 
 	// Добавляем подпись с источником
-	if fm.Signature != nil {
-		sigText := "\n\n" + fm.Signature.Text
-		sigOffset := utf8.RuneCountInString(text) + 2
-
-		tgEntities = append(tgEntities, &tg.MessageEntityTextURL{
-			Offset: sigOffset,
-			Length: utf8.RuneCountInString(fm.Signature.Text),
-			URL:    fm.Signature.URL,
-		})
-
-		text += sigText
-	}
+	text = fm.AppendSourceLinkMarkdown(text)
 
 	// Создаем инлайн клавиатуру с кнопкой
 	replyMarkup := &tg.ReplyInlineMarkup{
