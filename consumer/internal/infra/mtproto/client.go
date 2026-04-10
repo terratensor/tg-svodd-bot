@@ -283,6 +283,27 @@ func (c *Client) SendFormattedMessage(ctx context.Context, chatID string, fm *do
 	// ... конвертация fm.Entities в tgEntities ...
 	text = fm.AddSignatureEntity(text, &tgEntities)
 
+	// ВАЛИДАЦИЯ
+	log.Printf("=== VALIDATION ===")
+	log.Printf("Text length: %d", utf8.RuneCountInString(text))
+	for i, entity := range tgEntities {
+		if textURL, ok := entity.(*tg.MessageEntityTextURL); ok {
+			start := textURL.Offset
+			end := start + textURL.Length
+			log.Printf("Entity[%d]: offset=%d, length=%d, end=%d", i, start, textURL.Length, end)
+			if end <= utf8.RuneCountInString(text) {
+				extracted := string([]rune(text)[start:end])
+				log.Printf("Extracted text: '%s'", extracted)
+				log.Printf("Expected text: '%s'", fm.Signature.Text)
+				if extracted != fm.Signature.Text {
+					log.Printf("❌ MISMATCH!")
+				}
+			} else {
+				log.Printf("❌ Entity out of bounds!")
+			}
+		}
+	}
+
 	// ========== ЛОГИ ДЛЯ ОТЛАДКИ ENTITIES ==========
 	log.Printf("🔍 [SendFormattedMessageWithButton] Final text length: %d runes", utf8.RuneCountInString(text))
 	log.Printf("🔍 [SendFormattedMessageWithButton] Full text: %s", text)
@@ -372,6 +393,27 @@ func (c *Client) SendFormattedMessageWithButton(ctx context.Context, chatID stri
 	// Добавляем подпись с источником
 	// ... конвертация fm.Entities в tgEntities ...
 	text = fm.AddSignatureEntity(text, &tgEntities)
+
+	// ВАЛИДАЦИЯ
+	log.Printf("=== VALIDATION ===")
+	log.Printf("Text length: %d", utf8.RuneCountInString(text))
+	for i, entity := range tgEntities {
+		if textURL, ok := entity.(*tg.MessageEntityTextURL); ok {
+			start := textURL.Offset
+			end := start + textURL.Length
+			log.Printf("Entity[%d]: offset=%d, length=%d, end=%d", i, start, textURL.Length, end)
+			if end <= utf8.RuneCountInString(text) {
+				extracted := string([]rune(text)[start:end])
+				log.Printf("Extracted text: '%s'", extracted)
+				log.Printf("Expected text: '%s'", fm.Signature.Text)
+				if extracted != fm.Signature.Text {
+					log.Printf("❌ MISMATCH!")
+				}
+			} else {
+				log.Printf("❌ Entity out of bounds!")
+			}
+		}
+	}
 
 	// Создаем инлайн клавиатуру с кнопкой
 	replyMarkup := &tg.ReplyInlineMarkup{
