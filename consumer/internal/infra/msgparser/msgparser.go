@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -236,14 +235,13 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 
 	// Добавляем подпись с источником
 	if link, ok := headers["comment_link"]; ok && link != "" {
-		// Кодируем URL правильно
-		parsedURL, err := url.Parse(link)
-		if err == nil {
-			if parsedURL.Fragment != "" {
-				// Кодируем fragment
-				parsedURL.Fragment = url.PathEscape(parsedURL.Fragment)
-			}
-			link = parsedURL.String()
+		// Кодируем только пробелы в fragment, избегая двойного кодирования
+		if idx := strings.Index(link, "#:~:text="); idx != -1 {
+			prefix := link[:idx]
+			fragment := link[idx+1:]
+			// Заменяем пробелы на %20, но не трогаем уже закодированные %25
+			fragment = strings.ReplaceAll(fragment, " ", "%20")
+			link = prefix + "#" + fragment
 		}
 
 		fm.Signature = &message.Signature{

@@ -19,6 +19,7 @@ import (
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/callbackserver"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msghandler"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgreceiver"
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgsender"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/lib/secret"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/metrics"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/repos/tgmessage"
@@ -96,6 +97,9 @@ func main() {
 	// Запускаем сервер для метрик
 	startMetricsServer()
 
+	// Инициализируем MTProto клиент (живет все время)
+	msgsender.InitMTProto()
+
 	// Подготавливаем подключение к БД
 	dsn := newDBConnectionString()
 	pgst, err := pgstore.NewMessages(dsn)
@@ -135,6 +139,9 @@ func main() {
 		// Flush buffered events before the program terminates.
 		defer sentry.Flush(2 * time.Second)
 	}
+
+	// Добавь отложенное закрытие MTProto
+	defer msgsender.ShutdownMTProto()
 
 	wg.Wait()
 	stop()
