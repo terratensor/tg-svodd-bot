@@ -12,6 +12,7 @@ import (
 
 	"unicode/utf8"
 
+	"github.com/terratensor/tg-svodd-bot/consumer/internal/domain/message"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/infra/msgsign"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/lib/linkprocessor"
 	"github.com/terratensor/tg-svodd-bot/consumer/internal/lib/telegramfilter"
@@ -40,6 +41,15 @@ const (
 type Chunk struct {
 	Text string
 	Type ChunkType
+	URL  string // для ссылок
+}
+
+// ParsedResult результат парсинга с форматированием
+type ParsedResult struct {
+	HTML          string                      // для обратной совместимости
+	Formatted     *message.FormattedMessage   // новый формат
+	Messages      []string                    // разбитое на части (для HTML)
+	FormattedMsgs []*message.FormattedMessage // разбитое на части (для MTProto)
 }
 
 func New(tgmessages *tgmessage.TgMessages) *Parser {
@@ -63,22 +73,18 @@ func New(tgmessages *tgmessage.TgMessages) *Parser {
 	}
 }
 
-// Parse обрабатывает текст сообщения для отправки в телеграм.
-// Устанавливает необходимые html теги
-func (p *Parser) Parse(ctx context.Context, msg string, headers map[string]string) ([]string, error) {
+// Parse возвращает результат парсинга с HTML и форматированной версией
+func (p *Parser) Parse(ctx context.Context, msg string, headers map[string]string) (*ParsedResult, error) {
 	n, _ := html.Parse(strings.NewReader(msg))
 
-	var builder strings.Builder
-	var f func(*html.Node)
-
 	var nodes []Chunk
+	var quoteText string
 
+	var f func(*html.Node)
 	f = func(n *html.Node) {
 		if n.Type == html.TextNode {
-			// В тексте могут содержаться переносы строк, определяем тип строки по наличию перноса
 			value := html.EscapeString(n.Data)
 			if value != "\n" {
-				// Удаляем цитаты [quote:12345] [/quote]
 				value = removeQuotes(value)
 				nodes = append(nodes, Chunk{Text: strings.TrimSpace(value), Type: Text})
 			}
@@ -87,24 +93,15 @@ func (p *Parser) Parse(ctx context.Context, msg string, headers map[string]strin
 			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			return
 		}
-		// Обрамляем цитату нодами переноса строк,
-		// если далее в процессе парсинга образуются дополнительные переносы,
-		// они будут удален функцией formatText
 		if n.Type == html.ElementNode && n.Data == "blockquote" {
-			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
-			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
-			nodes = append(nodes, Chunk{Text: p.processBlockquote(ctx, n), Type: Blockquote})
-			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
-			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
+			quoteText = p.processBlockquote(ctx, n)
+			nodes = append(nodes, Chunk{Text: quoteText, Type: Blockquote})
 			return
 		}
 		if n.Type == html.ElementNode && nodeHasRequiredCssClass("link", n) {
 			link := getInnerText(n)
 			link = linkprocessor.TgLinkClipper(link)
-			nodes = append(nodes, Chunk{Text: link, Type: Inline})
-			if containsLineBreak(n) {
-				nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
-			}
+			nodes = append(nodes, Chunk{Text: link, Type: Inline, URL: link})
 			return
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -113,24 +110,97 @@ func (p *Parser) Parse(ctx context.Context, msg string, headers map[string]strin
 	}
 	f(n)
 
-	// Форматируем текст, удаляем все повторяющиеся символы новой строки
+	// Создаем форматированное сообщение
+	formatted := p.buildFormattedMessage(nodes, quoteText, headers)
+
+	// Создаем HTML версию для обратной совместимости
+	var builder strings.Builder
 	formatText(nodes, &builder)
+	htmlText := builder.String()
 
-	messages, err := p.splitMessage(builder.String(), headers)
+	messages, err := p.splitMessage(htmlText, headers)
+	if err != nil {
+		return nil, err
+	}
 
-	// Фильтруем все сообщения перед возвратом
+	// Фильтруем HTML сообщения
 	for i, msg := range messages {
 		messages[i] = telegramfilter.FilterMessage(msg)
 	}
 
-	return messages, err
+	return &ParsedResult{
+		HTML:      htmlText,
+		Formatted: formatted,
+		Messages:  messages,
+	}, nil
 }
 
-// splitMessage разбивает текст комментария на блоки размером не более,
-// чем 4096 символов с учетом длины подписи
-// разделитель для блоков \n
-func (p *Parser) splitMessage(msg string, headers map[string]string) ([]string, error) {
+// buildFormattedMessage создает структурированное сообщение из чанков
+func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[string]string) *message.FormattedMessage {
+	fm := &message.FormattedMessage{
+		Entities: []message.MessageEntity{},
+		Links:    []message.Link{},
+	}
 
+	var textBuilder strings.Builder
+	offset := 0
+
+	for _, node := range nodes {
+		switch node.Type {
+		case Text:
+			text := strings.TrimSpace(node.Text)
+			textBuilder.WriteString(text)
+			textBuilder.WriteString(" ")
+			offset += utf8.RuneCountInString(text) + 1
+
+		case Blockquote:
+			fm.Quote = strings.TrimSpace(node.Text)
+			// Добавляем цитату как блок с форматированием
+			if fm.Quote != "" {
+				entity := message.MessageEntity{
+					Type:   message.EntityBlockquote,
+					Offset: offset,
+					Length: utf8.RuneCountInString(fm.Quote),
+				}
+				fm.Entities = append(fm.Entities, entity)
+				textBuilder.WriteString(fm.Quote)
+				textBuilder.WriteString("\n\n")
+				offset += utf8.RuneCountInString(fm.Quote) + 2
+			}
+
+		case Inline:
+			text := strings.TrimSpace(node.Text)
+			if node.URL != "" {
+				fm.Links = append(fm.Links, message.Link{URL: node.URL, Text: text})
+				entity := message.MessageEntity{
+					Type:   message.EntityTextURL,
+					Offset: offset,
+					Length: utf8.RuneCountInString(text),
+					URL:    node.URL,
+				}
+				fm.Entities = append(fm.Entities, entity)
+			}
+			textBuilder.WriteString(text)
+			textBuilder.WriteString(" ")
+			offset += utf8.RuneCountInString(text) + 1
+		}
+	}
+
+	fm.Text = strings.TrimSpace(textBuilder.String())
+
+	// Добавляем подпись с источником
+	if link, ok := headers["comment_link"]; ok && link != "" {
+		fm.Signature = &message.Signature{
+			Text: "★ Источник",
+			URL:  link,
+		}
+	}
+
+	return fm
+}
+
+// splitMessage разбивает HTML сообщение на части
+func (p *Parser) splitMessage(msg string, headers map[string]string) ([]string, error) {
 	msg = strings.TrimSpace(msg)
 
 	msgsign := msgsign.New(headers)
@@ -144,17 +214,11 @@ func (p *Parser) splitMessage(msg string, headers map[string]string) ([]string, 
 	var builder strings.Builder
 	chunks := strings.SplitAfter(msg, "\n")
 
-	// Сценарии, когда переносов строк не было, но сообщение все еще более 4096 символов
-	// Разбиваем по предложениям, по совам, по символам.
 	if len(chunks) == 1 {
-		// If the message doesn't contain any line breaks, try splitting it into sentences, words, or utf8 characters
-		var err error
-		var messages []string
-		messages, err = splitMessageOnSentences(chunks[0], msgsign, limit)
+		messages, err := splitMessageOnSentences(chunks[0], msgsign, limit)
 		if len(messages) == 0 {
 			messages, err = splitMessageOnWords(chunks[0], msgsign, limit)
 			if len(messages) == 0 {
-				log.Println("splitMessageOnWords failed, trying splitTextByUtf8Chars")
 				messages, err = splitTextByUtf8Chars(chunks[0], msgsign, limit)
 			}
 		}
@@ -170,12 +234,9 @@ func (p *Parser) splitMessage(msg string, headers map[string]string) ([]string, 
 			continue
 		}
 
-		// Добавляем перенос строки т.к. ранее были обрезаны все пробелы функцией TrimSpace
-		// builder.WriteString("\n")
 		if utf8.RuneCountInString(builder.String())+(utf8.RuneCountInString(chunk)+2) < limit {
 			builder.WriteString(chunk)
 			builder.WriteString("\n\n")
-
 		} else {
 			msgs = append(msgs, builder.String())
 			builder.Reset()
@@ -183,8 +244,7 @@ func (p *Parser) splitMessage(msg string, headers map[string]string) ([]string, 
 			builder.WriteString("\n\n")
 		}
 	}
-	// При завершении цикла проверяем остался ли в билдере текст,
-	// если да, то добавляем текст в срез сообщений
+
 	if builder.Len() > 0 {
 		msgs = append(msgs, builder.String())
 	}

@@ -10,11 +10,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/dcs"
 	"github.com/gotd/td/telegram/message"
 	"github.com/gotd/td/tg"
+
+	// Импортируем наш пакет с типами
+	domainMsg "github.com/terratensor/tg-svodd-bot/consumer/internal/domain/message"
 )
 
 type Client struct {
@@ -226,4 +230,188 @@ func getCredentials() (int, string) {
 
 	log.Printf("📱 Using AppID: %d", appID)
 	return appID, appHash
+}
+
+// SendFormattedMessage отправляет форматированное сообщение через MTProto
+func (c *Client) SendFormattedMessage(ctx context.Context, chatID string, fm *domainMsg.FormattedMessage) (int, error) {
+	c.mu.RLock()
+	ready := c.ready
+	c.mu.RUnlock()
+
+	if !ready {
+		return 0, fmt.Errorf("client not ready")
+	}
+
+	peer, err := c.resolvePeer(ctx, chatID)
+	if err != nil {
+		return 0, fmt.Errorf("resolve peer failed: %w", err)
+	}
+
+	// Конвертируем наши entities в формат Telegram API
+	var tgEntities []tg.MessageEntityClass
+
+	for _, entity := range fm.Entities {
+		switch entity.Type {
+		case domainMsg.EntityItalic:
+			tgEntities = append(tgEntities, &tg.MessageEntityItalic{
+				Offset: entity.Offset,
+				Length: entity.Length,
+			})
+		case domainMsg.EntityBold:
+			tgEntities = append(tgEntities, &tg.MessageEntityBold{
+				Offset: entity.Offset,
+				Length: entity.Length,
+			})
+		case domainMsg.EntityTextURL:
+			tgEntities = append(tgEntities, &tg.MessageEntityTextURL{
+				Offset: entity.Offset,
+				Length: entity.Length,
+				URL:    entity.URL,
+			})
+		case domainMsg.EntityBlockquote:
+			tgEntities = append(tgEntities, &tg.MessageEntityBlockquote{
+				Offset: entity.Offset,
+				Length: entity.Length,
+			})
+		}
+	}
+
+	// Формируем итоговый текст
+	text := fm.Text
+
+	// Добавляем подпись с источником
+	if fm.Signature != nil {
+		sigText := "\n\n" + fm.Signature.Text
+		sigOffset := utf8.RuneCountInString(text) + 2
+
+		tgEntities = append(tgEntities, &tg.MessageEntityTextURL{
+			Offset: sigOffset,
+			Length: utf8.RuneCountInString(fm.Signature.Text),
+			URL:    fm.Signature.URL,
+		})
+
+		text += sigText
+	}
+
+	// Отправляем через прямой API вызов
+	request := &tg.MessagesSendMessageRequest{
+		Peer:     peer,
+		Message:  text,
+		Entities: tgEntities,
+		RandomID: int64(time.Now().UnixNano()),
+	}
+
+	result, err := c.api.MessagesSendMessage(ctx, request)
+	if err != nil {
+		return 0, fmt.Errorf("send failed: %w", err)
+	}
+
+	return extractMessageID(result), nil
+}
+
+// SendFormattedMessageWithButton отправляет форматированное сообщение с инлайн кнопкой
+func (c *Client) SendFormattedMessageWithButton(ctx context.Context, chatID string, fm *domainMsg.FormattedMessage, buttonText, buttonURL string) (int, error) {
+	c.mu.RLock()
+	ready := c.ready
+	c.mu.RUnlock()
+
+	if !ready {
+		return 0, fmt.Errorf("client not ready")
+	}
+
+	peer, err := c.resolvePeer(ctx, chatID)
+	if err != nil {
+		return 0, fmt.Errorf("resolve peer failed: %w", err)
+	}
+
+	// Конвертируем entities
+	var tgEntities []tg.MessageEntityClass
+
+	for _, entity := range fm.Entities {
+		switch entity.Type {
+		case domainMsg.EntityItalic:
+			tgEntities = append(tgEntities, &tg.MessageEntityItalic{
+				Offset: entity.Offset,
+				Length: entity.Length,
+			})
+		case domainMsg.EntityTextURL:
+			tgEntities = append(tgEntities, &tg.MessageEntityTextURL{
+				Offset: entity.Offset,
+				Length: entity.Length,
+				URL:    entity.URL,
+			})
+		case domainMsg.EntityBlockquote:
+			tgEntities = append(tgEntities, &tg.MessageEntityBlockquote{
+				Offset: entity.Offset,
+				Length: entity.Length,
+			})
+		}
+	}
+
+	// Формируем текст
+	text := fm.Text
+
+	// Добавляем подпись с источником (если есть)
+	if fm.Signature != nil {
+		sigText := "\n\n" + fm.Signature.Text
+		sigOffset := utf8.RuneCountInString(text) + 2
+
+		tgEntities = append(tgEntities, &tg.MessageEntityTextURL{
+			Offset: sigOffset,
+			Length: utf8.RuneCountInString(fm.Signature.Text),
+			URL:    fm.Signature.URL,
+		})
+
+		text += sigText
+	}
+
+	// Создаем инлайн клавиатуру с кнопкой
+	replyMarkup := &tg.ReplyInlineMarkup{
+		Rows: []tg.KeyboardButtonRow{
+			{
+				Buttons: []tg.KeyboardButtonClass{
+					&tg.KeyboardButtonURL{
+						Text: buttonText,
+						URL:  buttonURL,
+					},
+				},
+			},
+		},
+	}
+
+	// Отправляем через прямой API вызов с клавиатурой
+	request := &tg.MessagesSendMessageRequest{
+		Peer:        peer,
+		Message:     text,
+		Entities:    tgEntities,
+		ReplyMarkup: replyMarkup,
+		RandomID:    int64(time.Now().UnixNano()),
+	}
+
+	result, err := c.api.MessagesSendMessage(ctx, request)
+	if err != nil {
+		return 0, fmt.Errorf("send failed: %w", err)
+	}
+
+	return extractMessageID(result), nil
+}
+
+// extractMessageID извлекает ID сообщения из ответа API
+func extractMessageID(result tg.UpdatesClass) int {
+	switch update := result.(type) {
+	case *tg.UpdateShortSentMessage:
+		return update.ID
+	case *tg.Updates:
+		for _, upd := range update.Updates {
+			if msgUpdate, ok := upd.(*tg.UpdateMessageID); ok {
+				return msgUpdate.ID
+			}
+			if newMsg, ok := upd.(*tg.UpdateNewMessage); ok {
+				if msg, ok := newMsg.Message.(*tg.Message); ok {
+					return msg.ID
+				}
+			}
+		}
+	}
+	return 0
 }
