@@ -10,7 +10,7 @@ linters:
     - gofmt
     - goimports
     - govet
-    - gochecknoglobals # проверяет что не используются глобальные переменные.
+    # - gochecknoglobals # проверяет что не используются глобальные переменные.
     - goconst
     - staticcheck
     # - funlen

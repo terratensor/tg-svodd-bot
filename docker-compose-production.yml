@@ -1,4 +1,27 @@
 services:
+
+  tg-ws-proxy:
+    image: ghcr.io/audetv/tg-ws-proxy:latest
+    container_name: tg-ws-proxy
+    ports:
+      - "1443:1443"
+    environment:
+      - TG_WS_PROXY_HOST=0.0.0.0
+      - TG_WS_PROXY_PORT=1443
+      - TG_WS_PROXY_DC_IPS=2:149.154.167.220 4:149.154.167.220
+      - TG_WS_PROXY_SECRET=${TG_WS_PROXY_SECRET}
+    deploy:
+      placement:
+        constraints: [ node.labels.worker == worker-1 ]
+      restart_policy:
+        condition: on-failure
+    networks:
+      - tg-bot-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
   tg-svodd-bot:
     image: ${REGISTRY}/tg-svodd-bot:${IMAGE_TAG}
     build:
