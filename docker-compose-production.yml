@@ -12,8 +12,13 @@ services:
         constraints: [ node.labels.worker == worker-1 ]
       restart_policy:
         condition: on-failure
+      endpoint_mode: dnsrr
     networks:
+      - rmq-net
       - tg-bot-net
+      - svodd-network
+      - monitoring-internal
+      - traefik-public
     logging:
       driver: json-file
       options:
