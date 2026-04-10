@@ -73,8 +73,8 @@ func Handler(
 			}
 
 			// Отправляем подготовленные сообщения в телеграм
-			// Передаем и HTML версию (для обратной совместимости) и форматированную (для MTProto)
-			msgsender.Send(ctx, parsedResult, r.Headers, tgmessages, m, buttonScheduler)
+			// Передаем parsedResult.Messages ([]string) как раньше
+			msgsender.Send(ctx, parsedResult.Messages, r.Headers, tgmessages, m, buttonScheduler)
 		}
 	}
 }
