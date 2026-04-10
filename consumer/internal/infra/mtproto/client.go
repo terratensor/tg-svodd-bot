@@ -58,30 +58,36 @@ func New(ctx context.Context) (*Client, error) {
 			return nil, fmt.Errorf("invalid secret hex: %w", err)
 		}
 
+		// Создаем кастомный dialer с MTProto обфускацией и фильтрацией IPv6
 		resolver = dcs.Plain(dcs.PlainOptions{
 			Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				// Игнорируем IPv6
-				if strings.Contains(addr, "[") || strings.Contains(addr, "]:") {
-					log.Printf("⚠️ Skipping IPv6: %s", addr)
+				log.Printf("🔌 Dial called with addr: %s", addr)
+
+				// Блокируем IPv6 адреса
+				if strings.Contains(addr, "[") || strings.Contains(addr, "]:") || strings.Contains(addr, "2001:") {
+					log.Printf("❌ Blocking IPv6 address: %s", addr)
 					return nil, fmt.Errorf("IPv6 not supported")
 				}
 
-				log.Printf("🔌 Connecting via proxy to %s", addr)
-				conn, err := net.DialTimeout("tcp", proxyAddr, 10*time.Second)
+				log.Printf("✅ Connecting via proxy %s to IPv4 %s", proxyAddr, addr)
+
+				// Подключаемся к прокси
+				conn, err := net.DialTimeout("tcp", proxyAddr, 15*time.Second)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("failed to connect to proxy: %w", err)
 				}
 
+				// Отправляем MTProto обфускацию
 				if err := writeMTProtoObfuscation(conn, secretBytes); err != nil {
 					conn.Close()
-					return nil, err
+					return nil, fmt.Errorf("failed to write obfuscation: %w", err)
 				}
 
 				return conn, nil
 			},
 			Rand:       rand.Reader,
-			PreferIPv6: false,
-			Network:    "tcp4",
+			PreferIPv6: false,  // Отключаем предпочтение IPv6
+			Network:    "tcp4", // Принудительно IPv4
 		})
 	} else {
 		log.Printf("📡 Direct MTProto connection")
@@ -96,8 +102,11 @@ func New(ctx context.Context) (*Client, error) {
 	dcList := dcs.Prod()
 	var ipv4Options []tg.DCOption
 	for _, opt := range dcList.Options {
+		// Проверяем что это IPv4 адрес (содержит точки и нет двоеточий)
 		if strings.Contains(opt.IPAddress, ".") && !strings.Contains(opt.IPAddress, ":") {
 			ipv4Options = append(ipv4Options, opt)
+		} else {
+			log.Printf("⚠️ Filtered out non-IPv4 DC: %s", opt.IPAddress)
 		}
 	}
 	log.Printf("📡 Using %d IPv4 DCs (filtered from %d total)", len(ipv4Options), len(dcList.Options))
@@ -105,6 +114,7 @@ func New(ctx context.Context) (*Client, error) {
 	client := telegram.NewClient(appID, appHash, telegram.Options{
 		Resolver: resolver,
 		DCList:   dcs.List{Options: ipv4Options, Domains: dcList.Domains},
+		DC:       2, // Основной DC для ботов
 	})
 
 	return &Client{
@@ -134,21 +144,37 @@ func (c *Client) Connect(parentCtx context.Context) error {
 	c.cancel = cancel
 
 	return c.client.Run(ctx, func(ctx context.Context) error {
-		log.Printf("🔐 Authenticating bot...")
+		start := time.Now()
+		log.Printf("🔐 MTProto Run started")
 
-		// Bot() возвращает (BotAuth, error)
-		if _, err := c.client.Auth().Bot(ctx, c.token); err != nil {
-			return fmt.Errorf("auth failed: %w", err)
+		// Проверяем статус до аутентификации
+		statusStart := time.Now()
+		status, err := c.client.Auth().Status(ctx)
+		if err != nil {
+			log.Printf("⚠️ Auth status check failed: %v", err)
+		} else {
+			log.Printf("📊 Auth status check took %v: authorized=%v", time.Since(statusStart), status.Authorized)
 		}
 
+		// Всегда пытаемся авторизоваться
+		log.Printf("🔐 Starting bot authentication...")
+		authStart := time.Now()
+		if _, err := c.client.Auth().Bot(ctx, c.token); err != nil {
+			log.Printf("❌ Auth failed after %v: %v", time.Since(authStart), err)
+			return fmt.Errorf("auth failed: %w", err)
+		}
+		log.Printf("✅ Auth completed in %v", time.Since(authStart))
+
+		apiStart := time.Now()
 		c.api = c.client.API()
 		c.sender = message.NewSender(c.api)
+		log.Printf("📡 API initialization took %v", time.Since(apiStart))
 
 		c.mu.Lock()
 		c.ready = true
 		c.mu.Unlock()
 
-		log.Printf("✅ MTProto client ready")
+		log.Printf("✅ MTProto client fully ready in %v", time.Since(start))
 
 		<-ctx.Done()
 		return ctx.Err()
@@ -169,10 +195,12 @@ func (c *Client) SendMessage(ctx context.Context, chatID string, text string) (i
 		return 0, fmt.Errorf("resolve peer failed: %w", err)
 	}
 
+	start := time.Now()
 	result, err := c.sender.To(peer).Text(ctx, text)
 	if err != nil {
 		return 0, fmt.Errorf("send failed: %w", err)
 	}
+	log.Printf("📤 Message sent in %v", time.Since(start))
 
 	// Обрабатываем разные типы ответов
 	switch update := result.(type) {
