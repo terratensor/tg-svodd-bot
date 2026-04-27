@@ -128,56 +128,64 @@ func Send(ctx context.Context, parsedResult *msgparser.ParsedResult, headers map
 	// Проверяем готовность MTProto клиента
 	useMTProto := os.Getenv("TG_WS_PROXY_ENABLED") == "true" && mtprotoClient != nil && mtprotoClient.IsReady()
 
-	// Если MTProto готов и есть форматированное сообщение - отправляем через него
-	if useMTProto && parsedResult.Formatted != nil {
-		log.Printf("🚀 Sending formatted message via MTProto")
+	// Если MTProto готов и есть форматированные сообщения - отправляем через него
+	if useMTProto && len(parsedResult.FormattedMsgs) > 0 {
+		log.Printf("🚀 Sending %d formatted messages via MTProto", len(parsedResult.FormattedMsgs))
 
-		var messageID int32
-		var sendErr error
+		for i, fm := range parsedResult.FormattedMsgs {
+			var messageID int32
+			var sendErr error
 
-		for attempt := 1; attempt <= 100; attempt++ {
-			var id int
-			var err error
+			for attempt := 1; attempt <= 100; attempt++ {
+				var id int
+				var err error
 
-			if buttonScheduler.ShouldShowButton() {
-				qurl, _ := cleanQuestionURL(headers["comment_link"])
-				id, err = mtprotoClient.SendFormattedMessageWithButton(ctx, chatID,
-					parsedResult.Formatted, "Подключайтесь к соборному интеллекту", qurl)
-				buttonScheduler.Reset()
-			} else {
-				id, err = mtprotoClient.SendFormattedMessage(ctx, chatID, parsedResult.Formatted)
+				// Кнопку показываем только на последнем сообщении
+				if buttonScheduler.ShouldShowButton() && i == len(parsedResult.FormattedMsgs)-1 {
+					qurl, _ := cleanQuestionURL(headers["comment_link"])
+					id, err = mtprotoClient.SendFormattedMessageWithButton(ctx, chatID,
+						fm, "Подключайтесь к соборному интеллекту", qurl)
+					buttonScheduler.Reset()
+				} else {
+					id, err = mtprotoClient.SendFormattedMessage(ctx, chatID, fm)
+				}
+
+				if err != nil {
+					sendErr = err
+					cm := fmt.Sprintf("MTProto send error (attempt %d/100): %v", attempt, err)
+					log.Println(cm)
+					sentry.CaptureMessage(cm)
+					time.Sleep(time.Second * 5)
+					continue
+				}
+
+				messageID = int32(id)
+				sendErr = nil
+				log.Printf("✅ Message %d/%d sent via MTProto: ID=%d", i+1, len(parsedResult.FormattedMsgs), messageID)
+				break
 			}
 
-			if err != nil {
-				sendErr = err
-				cm := fmt.Sprintf("MTProto send error (attempt %d/100): %v", attempt, err)
-				log.Println(cm)
-				sentry.CaptureMessage(cm)
-				time.Sleep(time.Second * 5)
+			if sendErr != nil {
+				log.Printf("❌ Failed to send formatted message %d/%d: %v", i+1, len(parsedResult.FormattedMsgs), sendErr)
 				continue
 			}
 
-			messageID = int32(id)
-			sendErr = nil
-			log.Printf("✅ Message sent via MTProto: ID=%d", messageID)
-			break
-		}
+			// Сохраняем в БД
+			m.MessagesSent.WithLabelValues().Inc()
+			tgMessage := tgmessage.TgMessage{
+				CommentID: commentID,
+				MessageID: messageID,
+			}
+			if err := tgmessages.Create(context.Background(), tgMessage); err != nil {
+				log.Printf("error create tgmessage ID: %v", err)
+			} else {
+				log.Printf("tgMessage saved: %+v", tgMessage)
+			}
 
-		if sendErr != nil {
-			log.Printf("❌ Failed to send via MTProto: %v", sendErr)
-			return
-		}
-
-		// Сохраняем в БД
-		m.MessagesSent.WithLabelValues().Inc()
-		tgMessage := tgmessage.TgMessage{
-			CommentID: commentID,
-			MessageID: messageID,
-		}
-		if err := tgmessages.Create(context.Background(), tgMessage); err != nil {
-			log.Printf("error create tgmessage ID: %v", err)
-		} else {
-			log.Printf("tgMessage saved: %+v", tgMessage)
+			// Пауза между частями
+			if i < len(parsedResult.FormattedMsgs)-1 {
+				time.Sleep(time.Second * 3)
+			}
 		}
 
 		return
