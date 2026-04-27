@@ -163,12 +163,14 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 	var textBuilder strings.Builder
 	offset := 0
 	flag := 0
-	skipNextLineBreak := false
+	skipLineBreaks := 0 // Счетчик LineBreak для пропуска
 
-	// Обрабатываем все ноды в порядке их следования
 	for n, node := range nodes {
+		// Пропускаем LineBreak перед и после Blockquote
 		if node.Type == Blockquote {
-			// node.URL = PlainText цитаты
+			// Убираем \n\n которые добавились перед цитатой
+			skipLineBreaks = 2 // Пропустить 2 LineBreak после цитаты
+
 			cleanText := strings.TrimSpace(node.URL)
 			if cleanText == "" {
 				continue
@@ -183,20 +185,18 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 			})
 			offset += utf8.RuneCountInString(cleanText) + 1
 			flag = 0
-			skipNextLineBreak = true // Пропускаем LineBreak после цитаты
+			continue
+		}
+
+		// Пропускаем LineBreak которые идут сразу перед Blockquote
+		if node.Type == LineBreak && n+1 < len(nodes) && nodes[n+1].Type == LineBreak && n+2 < len(nodes) && nodes[n+2].Type == Blockquote {
+			// Это два LineBreak перед цитатой - пропускаем оба
 			continue
 		}
 
 		if node.Type == LineBreak {
-			if skipNextLineBreak {
-				// Пропускаем LineBreak ноды, которые идут сразу после Blockquote
-				// Они нужны только для HTML форматирования
-				if flag == 0 && n+1 < len(nodes) && nodes[n+1].Type == LineBreak {
-					// Это первая из двух LineBreak после цитаты - пропускаем обе
-					skipNextLineBreak = false
-					continue
-				}
-				skipNextLineBreak = false
+			if skipLineBreaks > 0 {
+				skipLineBreaks--
 				continue
 			}
 			if flag > 1 {
@@ -208,12 +208,16 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 			continue
 		}
 
-		skipNextLineBreak = false
+		skipLineBreaks = 0
 
 		if node.Type == Text {
+			// Пропускаем текст который является частью LineBreak перед цитатой
 			if node.Text == "\n" {
 				continue
 			}
+
+			// Проверяем, не является ли этот текст на самом деле началом цитаты
+			// (который появился из-за неправильного парсинга LineBreak)
 			cleanText := strings.TrimSpace(html.UnescapeString(node.Text))
 			if cleanText == "" {
 				continue
