@@ -163,11 +163,12 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 	var textBuilder strings.Builder
 	offset := 0
 	flag := 0
+	skipNextLineBreak := false
 
 	// Обрабатываем все ноды в порядке их следования
 	for n, node := range nodes {
 		if node.Type == Blockquote {
-			// node.Text = HTML версия, node.URL = PlainText
+			// node.URL = PlainText цитаты
 			cleanText := strings.TrimSpace(node.URL)
 			if cleanText == "" {
 				continue
@@ -182,10 +183,22 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 			})
 			offset += utf8.RuneCountInString(cleanText) + 1
 			flag = 0
+			skipNextLineBreak = true // Пропускаем LineBreak после цитаты
 			continue
 		}
 
 		if node.Type == LineBreak {
+			if skipNextLineBreak {
+				// Пропускаем LineBreak ноды, которые идут сразу после Blockquote
+				// Они нужны только для HTML форматирования
+				if flag == 0 && n+1 < len(nodes) && nodes[n+1].Type == LineBreak {
+					// Это первая из двух LineBreak после цитаты - пропускаем обе
+					skipNextLineBreak = false
+					continue
+				}
+				skipNextLineBreak = false
+				continue
+			}
 			if flag > 1 {
 				continue
 			}
@@ -194,6 +207,8 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 			flag++
 			continue
 		}
+
+		skipNextLineBreak = false
 
 		if node.Type == Text {
 			if node.Text == "\n" {
@@ -213,7 +228,7 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 			if cleanText == "" {
 				continue
 			}
-			// Добавляем пробел перед ссылкой если нужно (как в formatText)
+			// Добавляем пробел перед ссылкой если предыдущий узел не LineBreak
 			if n-1 > -1 && nodes[n-1].Type != LineBreak {
 				textBuilder.WriteString(" ")
 				offset += 1
@@ -230,7 +245,7 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 			textBuilder.WriteString(cleanText)
 			offset += utf8.RuneCountInString(cleanText)
 
-			// Добавляем пробел после ссылки если нужно
+			// Добавляем пробел после ссылки если следующий узел не LineBreak
 			if len(nodes) > n+1 && nodes[n+1].Type != LineBreak {
 				textBuilder.WriteString(" ")
 				offset += 1
