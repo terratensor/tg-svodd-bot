@@ -155,23 +155,23 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 	offset := 0
 	flag := 0
 
-	// Обрабатываем цитату (чистый текст)
-	if quote != "" {
-		fm.Quote = quote
-		textBuilder.WriteString(quote)
-		textBuilder.WriteString("\n")
-
-		fm.Entities = append(fm.Entities, message.MessageEntity{
-			Type:   message.EntityBlockquote,
-			Offset: offset,
-			Length: utf8.RuneCountInString(quote),
-		})
-		offset += utf8.RuneCountInString(quote) + 1
-	}
-
-	// Обрабатываем ноды
+	// Обрабатываем все ноды в порядке их следования
 	for n, node := range nodes {
 		if node.Type == Blockquote {
+			cleanText := strings.TrimSpace(html.UnescapeString(node.Text))
+			if cleanText == "" {
+				continue
+			}
+			textBuilder.WriteString(cleanText)
+			textBuilder.WriteString("\n")
+
+			fm.Entities = append(fm.Entities, message.MessageEntity{
+				Type:   message.EntityBlockquote,
+				Offset: offset,
+				Length: utf8.RuneCountInString(cleanText),
+			})
+			offset += utf8.RuneCountInString(cleanText) + 1
+			flag = 0
 			continue
 		}
 
@@ -189,7 +189,7 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 			if node.Text == "\n" {
 				continue
 			}
-			cleanText := strings.TrimSpace(node.Text)
+			cleanText := strings.TrimSpace(html.UnescapeString(node.Text))
 			if cleanText == "" {
 				continue
 			}
@@ -199,7 +199,7 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 		}
 
 		if node.Type == Inline {
-			cleanText := strings.TrimSpace(node.Text)
+			cleanText := strings.TrimSpace(html.UnescapeString(node.Text))
 			if cleanText == "" {
 				continue
 			}
@@ -229,7 +229,11 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, quote string, headers map[
 		}
 	}
 
-	// ИСПРАВЛЕНИЕ: убираем HTML-экранирование
+	// Оставляем quote для совместимости
+	if quote != "" {
+		fm.Quote = quote
+	}
+
 	rawText := strings.TrimSpace(textBuilder.String())
 	fm.Text = html.UnescapeString(rawText)
 
