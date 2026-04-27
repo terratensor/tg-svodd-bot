@@ -80,6 +80,7 @@ func New(tgmessages *tgmessage.TgMessages) *Parser {
 }
 
 // Parse возвращает результат парсинга с HTML и форматированной версией
+// Parse возвращает результат парсинга с HTML и форматированной версией
 func (p *Parser) Parse(ctx context.Context, msg string, headers map[string]string) (*ParsedResult, error) {
 	n, _ := html.Parse(strings.NewReader(msg))
 
@@ -98,14 +99,10 @@ func (p *Parser) Parse(ctx context.Context, msg string, headers map[string]strin
 			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			return
 		}
-		// Обрамляем цитату нодами переноса строк (как в оригинале)
+		// Добавляем только цитату, без LineBreak обрамления
 		if n.Type == html.ElementNode && n.Data == "blockquote" {
 			result := p.processBlockquote(ctx, n)
-			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
-			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			nodes = append(nodes, Chunk{Text: result.HTML, Type: Blockquote, URL: result.PlainText})
-			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
-			nodes = append(nodes, Chunk{Text: "\n", Type: LineBreak})
 			return
 		}
 		if n.Type == html.ElementNode && nodeHasRequiredCssClass("link", n) {
@@ -147,7 +144,7 @@ func (p *Parser) Parse(ctx context.Context, msg string, headers map[string]strin
 
 	return &ParsedResult{
 		HTML:          htmlText,
-		Formatted:     formattedMsgs[0], // для обратной совместимости
+		Formatted:     formattedMsgs[0],
 		Messages:      messages,
 		FormattedMsgs: formattedMsgs,
 	}, nil
@@ -163,17 +160,18 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 	var textBuilder strings.Builder
 	offset := 0
 	flag := 0
-	skipLineBreaks := 0 // Счетчик LineBreak для пропуска
 
 	for n, node := range nodes {
-		// Пропускаем LineBreak перед и после Blockquote
 		if node.Type == Blockquote {
-			// Убираем \n\n которые добавились перед цитатой
-			skipLineBreaks = 2 // Пропустить 2 LineBreak после цитаты
-
+			// node.URL = PlainText цитаты
 			cleanText := strings.TrimSpace(node.URL)
 			if cleanText == "" {
 				continue
+			}
+			// Добавляем \n\n перед цитатой (кроме самой первой)
+			if textBuilder.Len() > 0 {
+				textBuilder.WriteString("\n\n")
+				offset += 2
 			}
 			textBuilder.WriteString(cleanText)
 			textBuilder.WriteString("\n")
@@ -188,17 +186,7 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 			continue
 		}
 
-		// Пропускаем LineBreak которые идут сразу перед Blockquote
-		if node.Type == LineBreak && n+1 < len(nodes) && nodes[n+1].Type == LineBreak && n+2 < len(nodes) && nodes[n+2].Type == Blockquote {
-			// Это два LineBreak перед цитатой - пропускаем оба
-			continue
-		}
-
 		if node.Type == LineBreak {
-			if skipLineBreaks > 0 {
-				skipLineBreaks--
-				continue
-			}
 			if flag > 1 {
 				continue
 			}
@@ -208,16 +196,11 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 			continue
 		}
 
-		skipLineBreaks = 0
-
 		if node.Type == Text {
 			// Пропускаем текст который является частью LineBreak перед цитатой
 			if node.Text == "\n" {
 				continue
 			}
-
-			// Проверяем, не является ли этот текст на самом деле началом цитаты
-			// (который появился из-за неправильного парсинга LineBreak)
 			cleanText := strings.TrimSpace(html.UnescapeString(node.Text))
 			if cleanText == "" {
 				continue
