@@ -289,18 +289,21 @@ func (c *Client) SendFormattedMessage(ctx context.Context, chatID string, fm *do
 		log.Printf("Text length: %d", utf8.RuneCountInString(text))
 		for i, entity := range tgEntities {
 			if textURL, ok := entity.(*tg.MessageEntityTextURL); ok {
-				start := textURL.Offset
-				end := start + textURL.Length
-				log.Printf("Entity[%d]: offset=%d, length=%d, end=%d", i, start, textURL.Length, end)
-				if end <= utf8.RuneCountInString(text) {
-					extracted := string([]rune(text)[start:end])
-					log.Printf("Extracted text: '%s'", extracted)
-					log.Printf("Expected text: '%s'", fm.Signature.Text)
-					if extracted != fm.Signature.Text {
-						log.Printf("❌ MISMATCH!")
+				// Проверяем только Entity с URL подписи
+				if textURL.URL == fm.Signature.URL {
+					start := textURL.Offset
+					end := start + textURL.Length
+					log.Printf("Entity[%d]: offset=%d, length=%d, end=%d", i, start, textURL.Length, end)
+					if end <= utf8.RuneCountInString(text) {
+						extracted := string([]rune(text)[start:end])
+						log.Printf("Extracted text: '%s'", extracted)
+						log.Printf("Expected text: '%s'", fm.Signature.Text)
+						if extracted != fm.Signature.Text {
+							log.Printf("❌ MISMATCH!")
+						}
+					} else {
+						log.Printf("❌ Entity out of bounds!")
 					}
-				} else {
-					log.Printf("❌ Entity out of bounds!")
 				}
 			}
 		}
