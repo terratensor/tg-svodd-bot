@@ -159,66 +159,55 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 
 	var textBuilder strings.Builder
 	offset := 0
-	flag := 0
 
-	for n, node := range nodes {
+	isFirst := true
+
+	for _, node := range nodes {
+		// Пропускаем все LineBreak
+		if node.Type == LineBreak {
+			continue
+		}
+
+		// Добавляем \n\n перед каждым блоком, кроме первого
+		if !isFirst {
+			textBuilder.WriteString("\n\n")
+			offset += 2
+		}
+
 		if node.Type == Blockquote {
-			// node.URL = PlainText цитаты
 			cleanText := strings.TrimSpace(node.URL)
 			if cleanText == "" {
 				continue
 			}
-			// Добавляем \n\n перед цитатой (кроме самой первой)
-			if textBuilder.Len() > 0 {
-				textBuilder.WriteString("\n\n")
-				offset += 2
-			}
+
 			textBuilder.WriteString(cleanText)
-			textBuilder.WriteString("\n")
 
 			fm.Entities = append(fm.Entities, message.MessageEntity{
 				Type:   message.EntityBlockquote,
 				Offset: offset,
 				Length: utf8.RuneCountInString(cleanText),
 			})
-			offset += utf8.RuneCountInString(cleanText) + 1
-			flag = 0
-			continue
-		}
-
-		if node.Type == LineBreak {
-			if flag > 1 {
-				continue
-			}
-			textBuilder.WriteString("\n")
-			offset += 1
-			flag++
+			offset += utf8.RuneCountInString(cleanText)
+			isFirst = false
 			continue
 		}
 
 		if node.Type == Text {
-			// Пропускаем текст который является частью LineBreak перед цитатой
-			if node.Text == "\n" {
-				continue
-			}
 			cleanText := strings.TrimSpace(html.UnescapeString(node.Text))
 			if cleanText == "" {
 				continue
 			}
+
 			textBuilder.WriteString(cleanText)
 			offset += utf8.RuneCountInString(cleanText)
-			flag = 0
+			isFirst = false
+			continue
 		}
 
 		if node.Type == Inline {
 			cleanText := strings.TrimSpace(html.UnescapeString(node.Text))
 			if cleanText == "" {
 				continue
-			}
-			// Добавляем пробел перед ссылкой если предыдущий узел не LineBreak
-			if n-1 > -1 && nodes[n-1].Type != LineBreak {
-				textBuilder.WriteString(" ")
-				offset += 1
 			}
 
 			if node.URL != "" {
@@ -231,13 +220,8 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 			}
 			textBuilder.WriteString(cleanText)
 			offset += utf8.RuneCountInString(cleanText)
-
-			// Добавляем пробел после ссылки если следующий узел не LineBreak
-			if len(nodes) > n+1 && nodes[n+1].Type != LineBreak {
-				textBuilder.WriteString(" ")
-				offset += 1
-			}
-			flag = 0
+			isFirst = false
+			continue
 		}
 	}
 
@@ -246,11 +230,9 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 
 	// Добавляем подпись с источником
 	if link, ok := headers["comment_link"]; ok && link != "" {
-		// Кодируем только пробелы в fragment, избегая двойного кодирования
 		if idx := strings.Index(link, "#:~:text="); idx != -1 {
 			prefix := link[:idx]
 			fragment := link[idx+1:]
-			// Заменяем пробелы на %20, но не трогаем уже закодированные %25
 			fragment = strings.ReplaceAll(fragment, " ", "%20")
 			link = prefix + "#" + fragment
 		}
@@ -265,13 +247,11 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 }
 
 // splitFormattedMessage разбивает длинное форматированное сообщение на части
-// Логика: сохраняем блоки "цитата + следующий абзац" вместе, разбиваем только если не влезают
 func (p *Parser) splitFormattedMessage(fm *message.FormattedMessage, headers map[string]string) []*message.FormattedMessage {
 	if fm == nil {
 		return nil
 	}
 
-	// Вычисляем лимит с учетом подписи
 	signLen := 0
 	if fm.Signature != nil {
 		signLen = utf8.RuneCountInString("\n\n" + fm.Signature.Text)
@@ -283,160 +263,135 @@ func (p *Parser) splitFormattedMessage(fm *message.FormattedMessage, headers map
 		return []*message.FormattedMessage{fm}
 	}
 
-	// Разбиваем по \n\n на абзацы
-	paragraphs := strings.Split(text, "\n\n")
+	// Разбиваем по \n\n на блоки
+	blocks := strings.Split(text, "\n\n")
 
-	// Группируем: цитата + следующий абзац (если цитата)
-	type block struct {
-		text     string
-		entities []message.MessageEntity
-		isQuote  bool
-	}
-
-	var blocks []block
-	currentStart := 0
-
-	for _, para := range paragraphs {
-		paraLen := utf8.RuneCountInString(para)
-
-		// Проверяем, есть ли BLOCKQUOTE Entity в этом абзаце
-		isQuote := false
-		for _, entity := range fm.Entities {
-			if entity.Type == message.EntityBlockquote {
-				if entity.Offset >= currentStart && entity.Offset < currentStart+paraLen {
-					isQuote = true
-					break
-				}
-			}
-		}
-
-		// Собираем Entities для этого абзаца
-		var paraEntities []message.MessageEntity
-		for _, entity := range fm.Entities {
-			entityEnd := entity.Offset + entity.Length
-			if entity.Offset < currentStart+paraLen && entityEnd > currentStart {
-				newEntity := entity
-				newEntity.Offset = entity.Offset - currentStart
-				if newEntity.Offset < 0 {
-					newEntity.Length += newEntity.Offset
-					newEntity.Offset = 0
-				}
-				if newEntity.Offset+newEntity.Length > paraLen {
-					newEntity.Length = paraLen - newEntity.Offset
-				}
-				if newEntity.Length > 0 {
-					paraEntities = append(paraEntities, newEntity)
-				}
-			}
-		}
-
-		blocks = append(blocks, block{
-			text:     para,
-			entities: paraEntities,
-			isQuote:  isQuote,
-		})
-
-		currentStart += paraLen + 2 // +2 за \n\n
-	}
-
-	// Теперь группируем блоки в части, сохраняя цитату со следующим текстом
 	var result []*message.FormattedMessage
-	var currentText strings.Builder
-	var currentEntities []message.MessageEntity
-	currentOffset := 0
+	var currentBlocks []string
+	currentLen := 0
 
-	for i, blk := range blocks {
-		blkLen := utf8.RuneCountInString(blk.text)
+	for _, block := range blocks {
+		blockLen := utf8.RuneCountInString(block)
 
-		// Если это цитата, пробуем взять её вместе со следующим абзацем
-		takeWithNext := blk.isQuote && i+1 < len(blocks)
-		nextLen := 0
-		if takeWithNext {
-			nextLen = utf8.RuneCountInString(blocks[i+1].text) + 2 // +2 за \n\n
-		}
-
-		totalLen := blkLen
-		if takeWithNext {
-			totalLen += nextLen
-		}
-
-		// Проверяем, влезает ли блок (возможно с следующим) в текущую часть
-		needNewPart := false
-		if currentText.Len() > 0 {
-			// Уже есть текст в текущей части
-			if utf8.RuneCountInString(currentText.String())+2+totalLen > limit {
-				needNewPart = true
-			}
-		} else {
-			// Первый блок в части
-			if totalLen > limit {
-				needNewPart = true
-			}
-		}
-
-		if needNewPart {
+		// Если блок один не влезает в лимит - придется резать
+		if blockLen > limit {
 			// Сохраняем текущую часть
-			if currentText.Len() > 0 {
-				part := &message.FormattedMessage{
-					Text:     strings.TrimSpace(currentText.String()),
-					Entities: currentEntities,
+			if len(currentBlocks) > 0 {
+				result = append(result, p.buildPart(currentBlocks, fm.Entities, nil))
+				currentBlocks = nil
+				currentLen = 0
+			}
+			// Режем блок по предложениям
+			parts := p.splitLongBlock(block, limit)
+			for j, part := range parts {
+				partEntities := p.extractEntities(part, fm.Entities)
+				partMsg := &message.FormattedMessage{
+					Text:     part,
+					Entities: partEntities,
 					Quote:    fm.Quote,
 				}
-				result = append(result, part)
-				currentText.Reset()
-				currentEntities = nil
-				currentOffset = 0
+				result = append(result, partMsg)
+				// Подпись только на последней части последнего блока
+				if j == len(parts)-1 {
+					// пока без подписи
+				}
 			}
+			continue
 		}
 
-		// Добавляем \n\n между блоками если нужно
-		if currentText.Len() > 0 {
-			currentText.WriteString("\n\n")
-			currentOffset += 2
+		// Влезает ли блок в текущую часть (+2 на \n\n если не первый)
+		sep := 0
+		if len(currentBlocks) > 0 {
+			sep = 2
 		}
 
-		// Добавляем блок
-		for _, entity := range blk.entities {
-			entity.Offset += currentOffset
-			currentEntities = append(currentEntities, entity)
-		}
-		currentText.WriteString(blk.text)
-		currentOffset += blkLen
-
-		// Если взяли следующий блок вместе с цитатой
-		if takeWithNext {
-			currentText.WriteString("\n\n")
-			currentOffset += 2
-			nextBlk := blocks[i+1]
-			for _, entity := range nextBlk.entities {
-				entity.Offset += currentOffset
-				currentEntities = append(currentEntities, entity)
+		if currentLen+sep+blockLen <= limit {
+			currentBlocks = append(currentBlocks, block)
+			currentLen += sep + blockLen
+		} else {
+			// Сохраняем текущую часть
+			if len(currentBlocks) > 0 {
+				result = append(result, p.buildPart(currentBlocks, fm.Entities, nil))
 			}
-			currentText.WriteString(nextBlk.text)
-			currentOffset += nextLen - 2 // уже добавили \n\n
-			i++                          // пропускаем следующий блок
+			// Начинаем новую
+			currentBlocks = []string{block}
+			currentLen = blockLen
 		}
 	}
 
-	// Добавляем последнюю часть
-	if currentText.Len() > 0 {
-		part := &message.FormattedMessage{
-			Text:     strings.TrimSpace(currentText.String()),
-			Entities: currentEntities,
-			Quote:    fm.Quote,
-		}
-		result = append(result, part)
-	}
-
-	// Подпись только на последней части
-	if len(result) > 0 {
-		result[len(result)-1].Signature = fm.Signature
+	// Последняя часть
+	if len(currentBlocks) > 0 {
+		lastPart := p.buildPart(currentBlocks, fm.Entities, fm.Signature)
+		result = append(result, lastPart)
 	}
 
 	if len(result) == 0 {
 		return []*message.FormattedMessage{fm}
 	}
 
+	return result
+}
+
+// buildPart создает FormattedMessage из блоков
+func (p *Parser) buildPart(blocks []string, allEntities []message.MessageEntity, sig *message.Signature) *message.FormattedMessage {
+	text := strings.Join(blocks, "\n\n")
+
+	// Извлекаем Entities для этого текста
+	entities := p.extractEntities(text, allEntities)
+
+	return &message.FormattedMessage{
+		Text:      text,
+		Entities:  entities,
+		Signature: sig,
+	}
+}
+
+// extractEntities извлекает Entities, которые попадают в partText
+func (p *Parser) extractEntities(partText string, allEntities []message.MessageEntity) []message.MessageEntity {
+	partRunes := []rune(partText)
+	partLen := len(partRunes)
+
+	var result []message.MessageEntity
+	for _, entity := range allEntities {
+		entityEnd := entity.Offset + entity.Length
+		if entity.Offset < partLen {
+			newEntity := entity
+			if entityEnd > partLen {
+				newEntity.Length = partLen - entity.Offset
+			}
+			if newEntity.Length > 0 {
+				result = append(result, newEntity)
+			}
+		}
+	}
+	return result
+}
+
+// splitLongBlock режет длинный блок по предложениям
+func (p *Parser) splitLongBlock(block string, limit int) []string {
+	sentences := strings.Split(block, ". ")
+	var result []string
+	var current string
+
+	for _, s := range sentences {
+		if utf8.RuneCountInString(current)+utf8.RuneCountInString(s)+2 <= limit {
+			if current != "" {
+				current += ". "
+			}
+			current += s
+		} else {
+			if current != "" {
+				result = append(result, current)
+			}
+			current = s
+		}
+	}
+	if current != "" {
+		result = append(result, current)
+	}
+	if len(result) == 0 {
+		result = append(result, block)
+	}
 	return result
 }
 
