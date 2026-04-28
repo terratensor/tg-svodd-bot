@@ -265,6 +265,7 @@ func (p *Parser) buildFormattedMessage(nodes []Chunk, headers map[string]string)
 }
 
 // splitFormattedMessage разбивает длинное форматированное сообщение на части
+// Логика: сохраняем блоки "цитата + следующий абзац" вместе, разбиваем только если не влезают
 func (p *Parser) splitFormattedMessage(fm *message.FormattedMessage, headers map[string]string) []*message.FormattedMessage {
 	if fm == nil {
 		return nil
@@ -282,49 +283,98 @@ func (p *Parser) splitFormattedMessage(fm *message.FormattedMessage, headers map
 		return []*message.FormattedMessage{fm}
 	}
 
-	// Разбиваем текст по \n
-	chunks := strings.SplitAfter(text, "\n")
+	// Разбиваем по \n\n на абзацы
+	paragraphs := strings.Split(text, "\n\n")
+
+	// Группируем: цитата + следующий абзац (если цитата)
+	type block struct {
+		text     string
+		entities []message.MessageEntity
+		isQuote  bool
+	}
+
+	var blocks []block
+	currentStart := 0
+
+	for _, para := range paragraphs {
+		paraLen := utf8.RuneCountInString(para)
+
+		// Проверяем, есть ли BLOCKQUOTE Entity в этом абзаце
+		isQuote := false
+		for _, entity := range fm.Entities {
+			if entity.Type == message.EntityBlockquote {
+				if entity.Offset >= currentStart && entity.Offset < currentStart+paraLen {
+					isQuote = true
+					break
+				}
+			}
+		}
+
+		// Собираем Entities для этого абзаца
+		var paraEntities []message.MessageEntity
+		for _, entity := range fm.Entities {
+			entityEnd := entity.Offset + entity.Length
+			if entity.Offset < currentStart+paraLen && entityEnd > currentStart {
+				newEntity := entity
+				newEntity.Offset = entity.Offset - currentStart
+				if newEntity.Offset < 0 {
+					newEntity.Length += newEntity.Offset
+					newEntity.Offset = 0
+				}
+				if newEntity.Offset+newEntity.Length > paraLen {
+					newEntity.Length = paraLen - newEntity.Offset
+				}
+				if newEntity.Length > 0 {
+					paraEntities = append(paraEntities, newEntity)
+				}
+			}
+		}
+
+		blocks = append(blocks, block{
+			text:     para,
+			entities: paraEntities,
+			isQuote:  isQuote,
+		})
+
+		currentStart += paraLen + 2 // +2 за \n\n
+	}
+
+	// Теперь группируем блоки в части, сохраняя цитату со следующим текстом
 	var result []*message.FormattedMessage
 	var currentText strings.Builder
 	var currentEntities []message.MessageEntity
 	currentOffset := 0
-	totalOffset := 0 // смещение для entities в текущей части
 
-	for _, chunk := range chunks {
-		chunkLen := utf8.RuneCountInString(chunk)
+	for i, blk := range blocks {
+		blkLen := utf8.RuneCountInString(blk.text)
 
-		if utf8.RuneCountInString(currentText.String())+chunkLen < limit {
-			// Добавляем чанк в текущую часть
-			currentText.WriteString(chunk)
+		// Если это цитата, пробуем взять её вместе со следующим абзацем
+		takeWithNext := blk.isQuote && i+1 < len(blocks)
+		nextLen := 0
+		if takeWithNext {
+			nextLen = utf8.RuneCountInString(blocks[i+1].text) + 2 // +2 за \n\n
+		}
 
-			// Переносим entities, которые попадают в этот чанк
-			for _, entity := range fm.Entities {
-				entityEnd := entity.Offset + entity.Length
-				chunkStart := totalOffset
-				chunkEnd := totalOffset + chunkLen
+		totalLen := blkLen
+		if takeWithNext {
+			totalLen += nextLen
+		}
 
-				// Если entity пересекается с этим чанком
-				if entity.Offset < chunkEnd && entityEnd > chunkStart {
-					newEntity := entity
-					// Корректируем offset относительно начала текущей части
-					newEntity.Offset = entity.Offset - (totalOffset - currentOffset)
-					// Обрезаем если entity выходит за границы чанка
-					if newEntity.Offset < currentOffset {
-						newEntity.Length -= (currentOffset - newEntity.Offset)
-						newEntity.Offset = currentOffset
-					}
-					if newEntity.Offset+newEntity.Length > currentOffset+chunkLen {
-						newEntity.Length = (currentOffset + chunkLen) - newEntity.Offset
-					}
-					if newEntity.Length > 0 {
-						currentEntities = append(currentEntities, newEntity)
-					}
-				}
+		// Проверяем, влезает ли блок (возможно с следующим) в текущую часть
+		needNewPart := false
+		if currentText.Len() > 0 {
+			// Уже есть текст в текущей части
+			if utf8.RuneCountInString(currentText.String())+2+totalLen > limit {
+				needNewPart = true
 			}
-
-			currentOffset += chunkLen
-			totalOffset += chunkLen
 		} else {
+			// Первый блок в части
+			if totalLen > limit {
+				needNewPart = true
+			}
+		}
+
+		if needNewPart {
 			// Сохраняем текущую часть
 			if currentText.Len() > 0 {
 				part := &message.FormattedMessage{
@@ -333,37 +383,38 @@ func (p *Parser) splitFormattedMessage(fm *message.FormattedMessage, headers map
 					Quote:    fm.Quote,
 				}
 				result = append(result, part)
+				currentText.Reset()
+				currentEntities = nil
+				currentOffset = 0
 			}
+		}
 
-			// Начинаем новую часть
-			currentText.Reset()
-			currentText.WriteString(chunk)
-			currentEntities = nil
+		// Добавляем \n\n между блоками если нужно
+		if currentText.Len() > 0 {
+			currentText.WriteString("\n\n")
+			currentOffset += 2
+		}
 
-			// Переносим entities для нового чанка
-			for _, entity := range fm.Entities {
-				entityEnd := entity.Offset + entity.Length
-				chunkStart := totalOffset
-				chunkEnd := totalOffset + chunkLen
+		// Добавляем блок
+		for _, entity := range blk.entities {
+			entity.Offset += currentOffset
+			currentEntities = append(currentEntities, entity)
+		}
+		currentText.WriteString(blk.text)
+		currentOffset += blkLen
 
-				if entity.Offset < chunkEnd && entityEnd > chunkStart {
-					newEntity := entity
-					newEntity.Offset = entity.Offset - totalOffset
-					if newEntity.Offset < 0 {
-						newEntity.Length += newEntity.Offset
-						newEntity.Offset = 0
-					}
-					if newEntity.Offset+newEntity.Length > chunkLen {
-						newEntity.Length = chunkLen - newEntity.Offset
-					}
-					if newEntity.Length > 0 {
-						currentEntities = append(currentEntities, newEntity)
-					}
-				}
+		// Если взяли следующий блок вместе с цитатой
+		if takeWithNext {
+			currentText.WriteString("\n\n")
+			currentOffset += 2
+			nextBlk := blocks[i+1]
+			for _, entity := range nextBlk.entities {
+				entity.Offset += currentOffset
+				currentEntities = append(currentEntities, entity)
 			}
-
-			currentOffset = chunkLen
-			totalOffset += chunkLen
+			currentText.WriteString(nextBlk.text)
+			currentOffset += nextLen - 2 // уже добавили \n\n
+			i++                          // пропускаем следующий блок
 		}
 	}
 
@@ -374,12 +425,14 @@ func (p *Parser) splitFormattedMessage(fm *message.FormattedMessage, headers map
 			Entities: currentEntities,
 			Quote:    fm.Quote,
 		}
-		// Добавляем подпись только к последней части
-		part.Signature = fm.Signature
 		result = append(result, part)
 	}
 
-	// Если разбивка не удалась, возвращаем как есть
+	// Подпись только на последней части
+	if len(result) > 0 {
+		result[len(result)-1].Signature = fm.Signature
+	}
+
 	if len(result) == 0 {
 		return []*message.FormattedMessage{fm}
 	}

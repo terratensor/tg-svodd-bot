@@ -284,29 +284,31 @@ func (c *Client) SendFormattedMessage(ctx context.Context, chatID string, fm *do
 	text = fm.AddSignatureEntity(text, &tgEntities)
 
 	// ВАЛИДАЦИЯ
-	log.Printf("=== VALIDATION ===")
-	log.Printf("Text length: %d", utf8.RuneCountInString(text))
-	for i, entity := range tgEntities {
-		if textURL, ok := entity.(*tg.MessageEntityTextURL); ok {
-			start := textURL.Offset
-			end := start + textURL.Length
-			log.Printf("Entity[%d]: offset=%d, length=%d, end=%d", i, start, textURL.Length, end)
-			if end <= utf8.RuneCountInString(text) {
-				extracted := string([]rune(text)[start:end])
-				log.Printf("Extracted text: '%s'", extracted)
-				log.Printf("Expected text: '%s'", fm.Signature.Text)
-				if extracted != fm.Signature.Text {
-					log.Printf("❌ MISMATCH!")
+	if fm.Signature != nil {
+		log.Printf("=== VALIDATION ===")
+		log.Printf("Text length: %d", utf8.RuneCountInString(text))
+		for i, entity := range tgEntities {
+			if textURL, ok := entity.(*tg.MessageEntityTextURL); ok {
+				start := textURL.Offset
+				end := start + textURL.Length
+				log.Printf("Entity[%d]: offset=%d, length=%d, end=%d", i, start, textURL.Length, end)
+				if end <= utf8.RuneCountInString(text) {
+					extracted := string([]rune(text)[start:end])
+					log.Printf("Extracted text: '%s'", extracted)
+					log.Printf("Expected text: '%s'", fm.Signature.Text)
+					if extracted != fm.Signature.Text {
+						log.Printf("❌ MISMATCH!")
+					}
+				} else {
+					log.Printf("❌ Entity out of bounds!")
 				}
-			} else {
-				log.Printf("❌ Entity out of bounds!")
 			}
 		}
 	}
 
 	// ========== ЛОГИ ДЛЯ ОТЛАДКИ ENTITIES ==========
-	log.Printf("🔍 [SendFormattedMessageWithButton] Final text length: %d runes", utf8.RuneCountInString(text))
-	log.Printf("🔍 [SendFormattedMessageWithButton] Full text: %s", text)
+	log.Printf("🔍 [SendFormattedMessage] Final text length: %d runes", utf8.RuneCountInString(text))
+	log.Printf("🔍 [SendFormattedMessage] Full text: %s", text)
 	for i, entity := range tgEntities {
 		if textURL, ok := entity.(*tg.MessageEntityTextURL); ok {
 			if textURL.URL == "" {
@@ -320,13 +322,13 @@ func (c *Client) SendFormattedMessage(ctx context.Context, chatID string, fm *do
 		}
 		switch e := entity.(type) {
 		case *tg.MessageEntityBlockquote:
-			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] BLOCKQUOTE: offset=%d, length=%d", i, e.Offset, e.Length)
+			log.Printf("🔍 [SendFormattedMessage] Entity[%d] BLOCKQUOTE: offset=%d, length=%d", i, e.Offset, e.Length)
 		case *tg.MessageEntityTextURL:
-			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] TEXT_URL: offset=%d, length=%d, url=%s", i, e.Offset, e.Length, e.URL)
+			log.Printf("🔍 [SendFormattedMessage] Entity[%d] TEXT_URL: offset=%d, length=%d, url=%s", i, e.Offset, e.Length, e.URL)
 		case *tg.MessageEntityItalic:
-			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] ITALIC: offset=%d, length=%d", i, e.Offset, e.Length)
+			log.Printf("🔍 [SendFormattedMessage] Entity[%d] ITALIC: offset=%d, length=%d", i, e.Offset, e.Length)
 		default:
-			log.Printf("🔍 [SendFormattedMessageWithButton] Entity[%d] OTHER: offset=%d, length=%d, type=%T",
+			log.Printf("🔍 [SendFormattedMessage] Entity[%d] OTHER: offset=%d, length=%d, type=%T",
 				i, entity.GetOffset(), entity.GetLength(), entity)
 		}
 	}
@@ -395,22 +397,24 @@ func (c *Client) SendFormattedMessageWithButton(ctx context.Context, chatID stri
 	text = fm.AddSignatureEntity(text, &tgEntities)
 
 	// ВАЛИДАЦИЯ
-	log.Printf("=== VALIDATION ===")
-	log.Printf("Text length: %d", utf8.RuneCountInString(text))
-	for i, entity := range tgEntities {
-		if textURL, ok := entity.(*tg.MessageEntityTextURL); ok {
-			start := textURL.Offset
-			end := start + textURL.Length
-			log.Printf("Entity[%d]: offset=%d, length=%d, end=%d", i, start, textURL.Length, end)
-			if end <= utf8.RuneCountInString(text) {
-				extracted := string([]rune(text)[start:end])
-				log.Printf("Extracted text: '%s'", extracted)
-				log.Printf("Expected text: '%s'", fm.Signature.Text)
-				if extracted != fm.Signature.Text {
-					log.Printf("❌ MISMATCH!")
+	if fm.Signature != nil {
+		log.Printf("=== VALIDATION ===")
+		log.Printf("Text length: %d", utf8.RuneCountInString(text))
+		for i, entity := range tgEntities {
+			if textURL, ok := entity.(*tg.MessageEntityTextURL); ok {
+				start := textURL.Offset
+				end := start + textURL.Length
+				log.Printf("Entity[%d]: offset=%d, length=%d, end=%d", i, start, textURL.Length, end)
+				if end <= utf8.RuneCountInString(text) {
+					extracted := string([]rune(text)[start:end])
+					log.Printf("Extracted text: '%s'", extracted)
+					log.Printf("Expected text: '%s'", fm.Signature.Text)
+					if extracted != fm.Signature.Text {
+						log.Printf("❌ MISMATCH!")
+					}
+				} else {
+					log.Printf("❌ Entity out of bounds!")
 				}
-			} else {
-				log.Printf("❌ Entity out of bounds!")
 			}
 		}
 	}
