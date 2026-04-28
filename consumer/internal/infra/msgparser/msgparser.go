@@ -258,71 +258,43 @@ func (p *Parser) splitFormattedMessage(fm *message.FormattedMessage, headers map
 	}
 	limit := p.msgMaxChars - signLen
 
-	text := fm.Text
-	if utf8.RuneCountInString(text) <= limit {
+	fullText := fm.Text
+	if utf8.RuneCountInString(fullText) <= limit {
 		return []*message.FormattedMessage{fm}
 	}
 
 	// Разбиваем по \n\n на блоки
-	blocks := strings.Split(text, "\n\n")
+	blocks := strings.Split(fullText, "\n\n")
 
 	var result []*message.FormattedMessage
 	var currentBlocks []string
-	currentLen := 0
+	currentStart := 0 // начало текущей части в рунах от начала полного текста
 
 	for _, block := range blocks {
 		blockLen := utf8.RuneCountInString(block)
-
-		// Если блок один не влезает в лимит - придется резать
-		if blockLen > limit {
-			// Сохраняем текущую часть
-			if len(currentBlocks) > 0 {
-				result = append(result, p.buildPart(currentBlocks, fm.Entities, nil))
-				currentBlocks = nil
-				currentLen = 0
-			}
-			// Режем блок по предложениям
-			parts := p.splitLongBlock(block, limit)
-			for j, part := range parts {
-				partEntities := p.extractEntities(part, fm.Entities)
-				partMsg := &message.FormattedMessage{
-					Text:     part,
-					Entities: partEntities,
-					Quote:    fm.Quote,
-				}
-				result = append(result, partMsg)
-				// Подпись только на последней части последнего блока
-				if j == len(parts)-1 {
-					// пока без подписи
-				}
-			}
-			continue
-		}
-
-		// Влезает ли блок в текущую часть (+2 на \n\n если не первый)
 		sep := 0
 		if len(currentBlocks) > 0 {
-			sep = 2
+			sep = 2 // \n\n
 		}
 
-		if currentLen+sep+blockLen <= limit {
+		if currentLen(currentBlocks)+sep+blockLen <= limit {
 			currentBlocks = append(currentBlocks, block)
-			currentLen += sep + blockLen
 		} else {
 			// Сохраняем текущую часть
 			if len(currentBlocks) > 0 {
-				result = append(result, p.buildPart(currentBlocks, fm.Entities, nil))
+				part := p.buildPart(currentBlocks, currentStart, fm.Entities)
+				result = append(result, part)
+				currentStart += currentLen(currentBlocks) + 2 // +2 за \n\n после части
 			}
-			// Начинаем новую
 			currentBlocks = []string{block}
-			currentLen = blockLen
 		}
 	}
 
 	// Последняя часть
 	if len(currentBlocks) > 0 {
-		lastPart := p.buildPart(currentBlocks, fm.Entities, fm.Signature)
-		result = append(result, lastPart)
+		part := p.buildPart(currentBlocks, currentStart, fm.Entities)
+		part.Signature = fm.Signature
+		result = append(result, part)
 	}
 
 	if len(result) == 0 {
@@ -332,67 +304,56 @@ func (p *Parser) splitFormattedMessage(fm *message.FormattedMessage, headers map
 	return result
 }
 
-// buildPart создает FormattedMessage из блоков
-func (p *Parser) buildPart(blocks []string, allEntities []message.MessageEntity, sig *message.Signature) *message.FormattedMessage {
-	text := strings.Join(blocks, "\n\n")
-
-	// Извлекаем Entities для этого текста
-	entities := p.extractEntities(text, allEntities)
-
-	return &message.FormattedMessage{
-		Text:      text,
-		Entities:  entities,
-		Signature: sig,
+func currentLen(blocks []string) int {
+	if len(blocks) == 0 {
+		return 0
 	}
+	total := 0
+	for i, b := range blocks {
+		total += utf8.RuneCountInString(b)
+		if i > 0 {
+			total += 2 // \n\n
+		}
+	}
+	return total
 }
 
-// extractEntities извлекает Entities, которые попадают в partText
-func (p *Parser) extractEntities(partText string, allEntities []message.MessageEntity) []message.MessageEntity {
-	partRunes := []rune(partText)
-	partLen := len(partRunes)
+// buildPart создает FormattedMessage из блоков с пересчетом offset'ов
+func (p *Parser) buildPart(blocks []string, startOffset int, allEntities []message.MessageEntity) *message.FormattedMessage {
+	text := strings.Join(blocks, "\n\n")
+	partLen := utf8.RuneCountInString(text)
+	endOffset := startOffset + partLen
 
-	var result []message.MessageEntity
+	// Пересчитываем Entities: оставляем только те, что попадают в [startOffset, endOffset)
+	// и корректируем offset относительно начала части
+	var partEntities []message.MessageEntity
 	for _, entity := range allEntities {
+		entityStart := entity.Offset
 		entityEnd := entity.Offset + entity.Length
-		if entity.Offset < partLen {
+
+		// Entity пересекается с частью?
+		if entityStart < endOffset && entityEnd > startOffset {
 			newEntity := entity
-			if entityEnd > partLen {
-				newEntity.Length = partLen - entity.Offset
+			// Корректируем offset относительно начала части
+			newEntity.Offset = entityStart - startOffset
+			// Обрезаем если выходит за границы
+			if newEntity.Offset < 0 {
+				newEntity.Length += newEntity.Offset
+				newEntity.Offset = 0
+			}
+			if newEntity.Offset+newEntity.Length > partLen {
+				newEntity.Length = partLen - newEntity.Offset
 			}
 			if newEntity.Length > 0 {
-				result = append(result, newEntity)
+				partEntities = append(partEntities, newEntity)
 			}
 		}
 	}
-	return result
-}
 
-// splitLongBlock режет длинный блок по предложениям
-func (p *Parser) splitLongBlock(block string, limit int) []string {
-	sentences := strings.Split(block, ". ")
-	var result []string
-	var current string
-
-	for _, s := range sentences {
-		if utf8.RuneCountInString(current)+utf8.RuneCountInString(s)+2 <= limit {
-			if current != "" {
-				current += ". "
-			}
-			current += s
-		} else {
-			if current != "" {
-				result = append(result, current)
-			}
-			current = s
-		}
+	return &message.FormattedMessage{
+		Text:     text,
+		Entities: partEntities,
 	}
-	if current != "" {
-		result = append(result, current)
-	}
-	if len(result) == 0 {
-		result = append(result, block)
-	}
-	return result
 }
 
 // splitMessage разбивает HTML сообщение на части (без изменений)
