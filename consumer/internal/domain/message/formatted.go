@@ -40,7 +40,7 @@ type Signature struct {
 type FormattedMessage struct {
 	Text      string          // Очищенный текст без тегов
 	Entities  []MessageEntity // Сущности форматирования
-	Quote     string          // Текст цитаты
+	Quote     string          // Текст цитаты TODO Убрать - не используется!
 	Links     []Link          // Ссылки
 	Signature *Signature      // Подпись с источником
 }
