@@ -287,27 +287,83 @@ func (p *Parser) splitFormattedMessage(fm *message.FormattedMessage, headers map
 	var result []*message.FormattedMessage
 	var currentText strings.Builder
 	var currentEntities []message.MessageEntity
-	offset := 0
+	currentOffset := 0
+	totalOffset := 0 // смещение для entities в текущей части
 
 	for _, chunk := range chunks {
 		chunkLen := utf8.RuneCountInString(chunk)
+
 		if utf8.RuneCountInString(currentText.String())+chunkLen < limit {
+			// Добавляем чанк в текущую часть
 			currentText.WriteString(chunk)
-			offset += chunkLen
+
+			// Переносим entities, которые попадают в этот чанк
+			for _, entity := range fm.Entities {
+				entityEnd := entity.Offset + entity.Length
+				chunkStart := totalOffset
+				chunkEnd := totalOffset + chunkLen
+
+				// Если entity пересекается с этим чанком
+				if entity.Offset < chunkEnd && entityEnd > chunkStart {
+					newEntity := entity
+					// Корректируем offset относительно начала текущей части
+					newEntity.Offset = entity.Offset - (totalOffset - currentOffset)
+					// Обрезаем если entity выходит за границы чанка
+					if newEntity.Offset < currentOffset {
+						newEntity.Length -= (currentOffset - newEntity.Offset)
+						newEntity.Offset = currentOffset
+					}
+					if newEntity.Offset+newEntity.Length > currentOffset+chunkLen {
+						newEntity.Length = (currentOffset + chunkLen) - newEntity.Offset
+					}
+					if newEntity.Length > 0 {
+						currentEntities = append(currentEntities, newEntity)
+					}
+				}
+			}
+
+			currentOffset += chunkLen
+			totalOffset += chunkLen
 		} else {
 			// Сохраняем текущую часть
-			part := &message.FormattedMessage{
-				Text:     strings.TrimSpace(currentText.String()),
-				Entities: currentEntities,
-				Quote:    fm.Quote,
+			if currentText.Len() > 0 {
+				part := &message.FormattedMessage{
+					Text:     strings.TrimSpace(currentText.String()),
+					Entities: currentEntities,
+					Quote:    fm.Quote,
+				}
+				result = append(result, part)
 			}
-			result = append(result, part)
 
 			// Начинаем новую часть
 			currentText.Reset()
 			currentText.WriteString(chunk)
 			currentEntities = nil
-			offset = chunkLen
+
+			// Переносим entities для нового чанка
+			for _, entity := range fm.Entities {
+				entityEnd := entity.Offset + entity.Length
+				chunkStart := totalOffset
+				chunkEnd := totalOffset + chunkLen
+
+				if entity.Offset < chunkEnd && entityEnd > chunkStart {
+					newEntity := entity
+					newEntity.Offset = entity.Offset - totalOffset
+					if newEntity.Offset < 0 {
+						newEntity.Length += newEntity.Offset
+						newEntity.Offset = 0
+					}
+					if newEntity.Offset+newEntity.Length > chunkLen {
+						newEntity.Length = chunkLen - newEntity.Offset
+					}
+					if newEntity.Length > 0 {
+						currentEntities = append(currentEntities, newEntity)
+					}
+				}
+			}
+
+			currentOffset = chunkLen
+			totalOffset += chunkLen
 		}
 	}
 
